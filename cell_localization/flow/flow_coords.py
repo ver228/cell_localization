@@ -5,8 +5,10 @@ Created on Mon Mar 18 14:27:27 2019
 
 @author: avelinojaver
 """
+#import multiprocessing as mp
+#mp.set_start_method('spawn', force=True)
+
 import math
-import pandas as pd
 import tables
 import random
 from pathlib import Path
@@ -30,7 +32,10 @@ class CoordFlow(Dataset):
                  prob_unseeded_patch = 0.2,
                  int_aug_offset = None,
                  int_aug_expansion = None,
-                 is_preloaded = False
+                 patchnorm = False,
+                 is_preloaded = False,
+                 ignore_borders = False,
+                 stack_shape = None
                  ):
         
         
@@ -51,8 +56,12 @@ class CoordFlow(Dataset):
         self.int_aug_offset = int_aug_offset
         self.int_aug_expansion = int_aug_expansion
         
+        self.patchnorm = patchnorm
         
         self.is_preloaded = is_preloaded
+        self.ignore_borders = ignore_borders
+        self.stack_shape = stack_shape
+        
         
         dat = {}
         fnames = [x for x in self.root_dir.rglob('*.hdf5') if not x.name.startswith('.')]
@@ -102,49 +111,29 @@ class CoordFlow(Dataset):
             
     
     def __getitem__(self, ind):
-        roi, coords_rec = self.read_random()
         
-        if self.bbox_encoder is None:
-            #return coordinates maps
-            if coords_rec.size > 0:
-                #use a different mask per channel
-                coords_mask = []
-                
-                roi_shape = (self.roi_size, self.roi_size)
-                for type_id in self.type_ids:
-                    
-                    good = coords_rec['type_id'] == type_id
-                    
-                    cc = coords_rec[good]
-                    xys = np.array((cc['cx'], cc['cy']))
-                    
-                    mm = coords2mask(xys, roi_shape, sigma = self.loc_gauss_sigma)    
-                    coords_mask.append(mm)
-                coords_mask = np.array(coords_mask)
-                
-            else:
-                coords_mask = np.zeros((len(self.type_ids), self.roi_size, self.roi_size))
-    
-            target = coords_mask.astype(np.float32)
-        
+        def _read():
+            roi, coords_rec = self.read_random()
+            target = self._prepare_target(coords_rec)
+            return roi.astype(np.float32), target
+            
+        if self.stack_shape is None:
+            return _read()
+            
         else:
-            labels = coords_rec['type_id'].astype(np.int)
-            
-            #x1,y1, x2, y2
-            rr = coords_rec['radius']
-            x1 = coords_rec['cx'] - rr
-            x2 = coords_rec['cx'] + rr
-            y1 = coords_rec['cy'] - rr
-            y2 = coords_rec['cy'] + rr
-            
-            bboxes = np.stack((x1,y1, x2, y2)).T
-            bboxes = bboxes if bboxes.ndim == 2 else bboxes[None]
-            
-            clf_target, loc_target = self.bbox_encoder.encode(labels, bboxes)
-            
-            target = clf_target.astype(np.int), loc_target.astype(np.float32)
-            
-        return roi.astype(np.float32), target
+            rows = []
+            for _ in range(self.stack_shape[0]):
+                cols = []
+                for _ in range(self.stack_shape[1]):
+                    cols.append(_read())
+                    
+                cols = [np.concatenate(x, axis=1) for x in zip(*cols)]
+                
+                rows.append(cols)
+              
+            out = [np.concatenate(x, axis=2) for x in zip(*rows)]
+        
+            return out
             
     
     def read_full(self, ind):
@@ -176,6 +165,7 @@ class CoordFlow(Dataset):
         
         if self.is_preloaded:
            img, coords_rec = data
+           
            roi, roi_coords_rec = self._prepare_data(img, coords_rec, hard_neg_rec = hard_neg_rec)
         else:
             _file = data
@@ -187,8 +177,51 @@ class CoordFlow(Dataset):
                 img = fid.get_node('/img')
                 roi, roi_coords_rec = self._prepare_data(img, coords_rec, hard_neg_rec = hard_neg_rec)
                 
-        
         return roi, roi_coords_rec
+    
+    def _prepare_target(self, coords_rec):
+        if self.bbox_encoder is None:
+            #return coordinates maps
+            if coords_rec.size > 0:
+                #use a different mask per channel
+                coords_mask = []
+                
+                roi_shape = (self.roi_size, self.roi_size)
+                for type_id in self.type_ids:
+                    
+                    good = coords_rec['type_id'] == type_id
+                    
+                    cc = coords_rec[good]
+                    xys = np.array((cc['cx'], cc['cy']))
+                    
+                    mm = coords2mask(xys, roi_shape, sigma = self.loc_gauss_sigma)    
+                    coords_mask.append(mm)
+                coords_mask = np.array(coords_mask)
+                
+            else:
+                coords_mask = np.zeros((len(self.type_ids), self.roi_size, self.roi_size))
+    
+            target = coords_mask.astype(np.float32)
+            
+        else:
+            labels = coords_rec['type_id'].astype(np.int)
+            
+            #x1,y1, x2, y2
+            rr = coords_rec['radius']
+            x1 = coords_rec['cx'] - rr
+            x2 = coords_rec['cx'] + rr
+            y1 = coords_rec['cy'] - rr
+            y2 = coords_rec['cy'] + rr
+            
+            bboxes = np.stack((x1,y1, x2, y2)).T
+            bboxes = bboxes if bboxes.ndim == 2 else bboxes[None]
+            
+            clf_target, loc_target = self.bbox_encoder.encode(labels, bboxes)
+            
+            target = clf_target.astype(np.int), loc_target.astype(np.float32)
+            
+        return target
+    
     
     def _add_radius(self, coords_rec):
         try:
@@ -232,8 +265,15 @@ class CoordFlow(Dataset):
             # or making sure the roi includes a randomly selected labeled point.
             seed_row = self._get_aug_seed(coords_rec, img.shape[:2], hard_neg_rec = hard_neg_rec)
             img, coords_rec = self._crop_augment(img, coords_rec, seed_row)
+        
+        if not self.patchnorm:
+            img = (img.astype(np.float32) - self.scale_int[0])/(self.scale_int[1] - self.scale_int[0])
+        else:
+            img = img.astype(np.float32)
+            img -= img.mean()
+            img /= img.std()
             
-        img = (img.astype(np.float32) - self.scale_int[0])/(self.scale_int[1] - self.scale_int[0])
+        
         if img.ndim == 3:
             ### channel first for pytorch compatibility
             img = np.rollaxis(img, 2, 0)
@@ -298,27 +338,23 @@ class CoordFlow(Dataset):
         valid_coords = (coord_rec['cx']> xl) & (coord_rec['cx']< xr)
         valid_coords &= (coord_rec['cy']> yl) & (coord_rec['cy']< yr)
         
-        
         coord_out = coord_rec[valid_coords]
-        
-        
-        #if (len(coord_out) == 0) and (seed_row is not None):
-        #    import pdb
-        #    pdb.set_trace()
-        
-        
         coord_out['cx'] -= xl
         coord_out['cy'] -= yl
         
         ##### rotate
+        #crop_rotated = crop_padded
+        
         theta = np.random.uniform(-180, 180)
         scaling = 1/np.random.uniform(*self.zoom_range)
         
         xys = np.array((coord_out['cx'], coord_out['cy']))
         
         crop_rotated, xys = affine_transform(crop_padded, xys, theta, scaling)
-        coord_out['cx'] = xys[0]
-        coord_out['cy'] = xys[1]
+        #important, otherwise it will do the rounding by removing the decimal part cast from float to int
+        coord_out['cx'] = np.round(xys[0])
+        coord_out['cy'] = np.round(xys[1])
+        
         coord_out['radius'] *= scaling
         coord_out['radius'][coord_out['radius'] < self.min_radius] = self.min_radius
         
@@ -329,23 +365,32 @@ class CoordFlow(Dataset):
         coord_out['cy'] -= self.roi_padding
         
         
-        valid_coords = (coord_out['cx']> 0) & (coord_out['cx']< self.roi_size)
-        valid_coords &= (coord_out['cy']> 0) & (coord_out['cy']< self.roi_size)
+        if not self.ignore_borders:
+            left_lim, right_lim = 0, self.roi_size
+        else:
+            ss = self.min_radius
+            left_lim, right_lim = ss, self.roi_size - ss
+            
+        valid_coords = (coord_out['cx']> left_lim) & (coord_out['cx']< right_lim)
+        valid_coords &= (coord_out['cy']> left_lim) & (coord_out['cy']< right_lim)
         coord_out = coord_out[valid_coords]
+        
+        
+        
         
         ##### flips
         if random.random() > 0.5:
             crop_out = crop_out[::-1]
-            coord_out['cy'] = crop_out.shape[1] - coord_out['cy']
+            coord_out['cy'] = (crop_out.shape[1] - 1) - coord_out['cy'] 
         
         if random.random() > 0.5:
             crop_out = crop_out[:, ::-1]
-            coord_out['cx'] = crop_out.shape[0] - coord_out['cx']
+            coord_out['cx'] = (crop_out.shape[0] - 1) - coord_out['cx'] 
         
         
         
         if len(coord_out) > 0 :
-            assert np.all(coord_out['cx']>0) and np.all(coord_out['cy']>0)
+            assert np.all(coord_out['cx']>=0) and np.all(coord_out['cy']>=0)
         
         
         return crop_out, coord_out
@@ -372,7 +417,7 @@ def affine_transform(img, coords, theta, scaling = 1., offset_x = 0., offset_y =
         img = cv2.warpAffine(img, M, (rows, cols))#, borderMode = cv2.BORDER_REFLECT_101)
     else:
         for n in range(img.shape[-1]):
-            img[..., n] = cv2.warpAffine(img[..., n], M, (rows, cols))
+            img[..., n] = cv2.warpAffine(img[..., n], M, (rows, cols), flags = cv2.INTER_CUBIC)
     
     coords_rot = np.dot(M[:2, :2], coords)  +  M[:, -1][:, None]
     
@@ -381,13 +426,15 @@ def affine_transform(img, coords, theta, scaling = 1., offset_x = 0., offset_y =
 def coords2mask(coords, roi_size, kernel_size = (25,25), sigma = 4):
     b = np.zeros(roi_size, np.float32)
     
-    norm_factor = 2*np.pi*(sigma**2)
+    norm_factor = 2*np.pi*(sigma**2) if sigma > 0 else 1.
+    
     c_cols, c_rows = np.round(coords).astype(np.int)
     c_rows = np.clip(c_rows, 0, roi_size[0]-1)
     c_cols = np.clip(c_cols, 0, roi_size[1]-1)
     b[c_rows, c_cols]  = norm_factor
     
-    b = cv2.GaussianBlur(b, kernel_size, sigma, sigma, borderType = cv2.BORDER_CONSTANT)  
+    if sigma > 0:
+        b = cv2.GaussianBlur(b, kernel_size, sigma, sigma, borderType = cv2.BORDER_CONSTANT)  
     return b
 
 
@@ -396,7 +443,6 @@ def coords2mask(coords, roi_size, kernel_size = (25,25), sigma = 4):
 if __name__ == '__main__':
     from skimage.feature import peak_local_max
     import matplotlib.pylab as plt
-    from matplotlib import patches
     import tqdm
     from torch.utils.data import DataLoader
     
@@ -407,31 +453,64 @@ if __name__ == '__main__':
 #    root_dir = '/Users/avelinojaver/OneDrive - Nexus365/bladder_cancer_tils/rois/40x/train'
 #    loc_gauss_sigma = 5
 #    roi_size = 128
-    
-    
+
+#    root_dir = '/Users/avelinojaver/OneDrive - Nexus365/bladder_cancer_tils/full_tiles/40x'
+#    loc_gauss_sigma = 5
+#    roi_size = 64    
+
+#    root_dir = '/Users/avelinojaver/OneDrive - Nexus365/bladder_cancer_tils/full_tiles/20x'
+#    loc_gauss_sigma = 2.5
+#    roi_size = 48        
+
 #    root_dir = '/Users/avelinojaver/OneDrive - Nexus365/heba/cell_detection/data/validation'
 #    loc_gauss_sigma = 2
-#    roi_size = 96
+#    roi_size = 48
+
+#    root_dir = Path.home() / 'workspace/localization/data/woundhealing/annotated/v1/no_membrane/train'
+#    #root_dir = Path.home() / 'workspace/localization/data/heba/data-uncorrected/train'   
+#    loc_gauss_sigma = 2
+#    roi_size = 48
     
-    root_dir = Path.home() / 'workspace/localization/data/worm_eggs/validation'
-    loc_gauss_sigma = 1.5
-    roi_size = 64
+#    root_dir = Path.home() / 'workspace/localization/data/woundhealing/demixed_predictions'
+#    loc_gauss_sigma = 2
+#    roi_size = 48
     
-    from bbox_encoder import BoxEncoder
-    bbox_encoder = BoxEncoder(img_size = (roi_size, roi_size),
-               pyramid_levels = [1, 2, 3, 4, 5],
-               aspect_ratios = [(1.,1.)]
-               )
+    root_dir = Path.home() / 'workspace/localization/data/worm_eggs_adam/validation'
+    #root_dir = Path.home() / 'workspace/localization/data/worm_eggs_adam_refined/validation'
+    flow_args = dict(
+                roi_size = 48,
+                scale_int = (0, 255),
+                prob_unseeded_patch = 0.25,
+                loc_gauss_sigma = -1,#1.5,
+                zoom_range = (0.97, 1.03),
+                ignore_borders = False,
+                min_radius = 2.,
+                int_aug_offset = (-0.2, 0.2),
+                int_aug_expansion = (0.7, 1.3),
+                stack_shape = (4,4)
+                )
+
+#    root_dir = Path.home() / 'workspace/localization/test_images/'
+#    flow_args = dict(
+#                roi_size = 24,
+#                scale_int = (0, 255),
+#                prob_unseeded_patch = 0.25,
+#                loc_gauss_sigma = 1.,
+#                zoom_range = (0.97, 1.03)
+#                )
+
+                
+#    from bbox_encoder import BoxEncoder
+#    bbox_encoder = BoxEncoder(img_size = (roi_size, roi_size),
+#               pyramid_levels = [1, 2, 3, 4, 5],
+#               aspect_ratios = [(1.,1.)]
+#               )
     
     gen = CoordFlow(root_dir,
-                     roi_size = roi_size,
-                     loc_gauss_sigma = loc_gauss_sigma,
+                     
                      bbox_encoder = None,
-                     prob_unseeded_patch = 0.0,
-                     min_radius = 3,
-                     int_aug_offset = (-0.15, 0.15),
-                     int_aug_expansion = (0.85, 1.2),
-                     is_preloaded = False)
+                     **flow_args
+                     )
     
     num_workers = 4
     batch_size = 16
@@ -441,73 +520,33 @@ if __name__ == '__main__':
                         num_workers=num_workers)
     
     
-#    bot_x, top_x = 1e10, -1
-#    bot_y, top_y = 1e10, -1
-#    all_out = []
-#    for _ in tqdm.tqdm(range(500)):
-#        for ii, (X,Y) in enumerate(tqdm.tqdm(loader)):
-#            bot_x = min(bot_x, X.min())
-#            top_x = max(top_x, X.max())
-#            
-#            bot_y = min(bot_x, X.min())
-#            top_y = max(top_x, X.max())
-#            
-#        
-#        all_out.append([(bot_x, top_y), (bot_y, top_y)])
-    
+
     #%%
-#    for X, Y in tqdm.tqdm(loader):
-#        pass
-#    for X, Y in tqdm.tqdm(gen):
-#        pass        
+    for _ in tqdm.tqdm(range(10)):
+        X,Y = gen[0]
+        #%%
+        if X.shape[0] == 3:
+            x = np.rollaxis(X, 0, 3)
+            x = x[..., ::-1]
+        else:
+            x = X[0]
         
-#        if X.shape[0] == 3:
-#            x = np.rollaxis(X, 0, 3)
-#        else:
-#            x = X[0]
-#         
-#        
-#        fig, axs = plt.subplots(1,1,sharex=True,sharey=True)#, figsize= (20, 20))
-#        axs.imshow(x, cmap='gray')
-#        
-#        if Y[0].size > 0:
-#            labs, bboxes  = bbox_encoder.decode(*Y)
-#            for lab, bbox in zip(labs, bboxes):
-#                x1, y1, x2, y2 = bbox
-#                rect = patches.Rectangle((x1, y1), (x2 - x1), (y2 - y1),linewidth=1,edgecolor='r',facecolor='none')
-#                
-#                # Add the patch to the Axes
-#                axs.add_patch(rect)
-#        
-#        
-#    plt.show()    
-    #%%    
-#    for _ in tqdm.tqdm(range(10000)):
-#        X,Y = gen[0]
-#        pass
+        fig, axs = plt.subplots(1, Y.shape[0] + 1,sharex=True,sharey=True)#, figsize= (20, 20))
+        axs[0].imshow(x, cmap='gray', vmin = 0.0, vmax = 1.0)
+        
+        ccs = 'rc'
+        for ii, y in enumerate(Y):
+            coords_pred = peak_local_max(y, min_distance = 2, threshold_abs = 0.1, threshold_rel = 0.5)
+            axs[ii + 1].imshow(y)
+            axs[0].plot(coords_pred[...,1], coords_pred[...,0], 'x', color = ccs[ii])
+        #%%
+    plt.show()
     #%%
-#    for _ in tqdm.tqdm(range(10)):
-#        X,Y = gen[0]
-#        if X.shape[0] == 3:
-#            x = np.rollaxis(X, 0, 3)
-#        else:
-#            x = X[0]
-#        
-#        fig, axs = plt.subplots(1, Y.shape[0] + 1,sharex=True,sharey=True)#, figsize= (20, 20))
-#        axs[0].imshow(x, cmap='gray')
-#        
-#        for ii, y in enumerate(Y):
-#            coords_pred = peak_local_max(y, min_distance = 2, threshold_abs = 0.1, threshold_rel = 0.5)
-#            axs[ii + 1].imshow(y)
-#            axs[0].plot(coords_pred[...,1], coords_pred[...,0], 'r.')
-#        
-#    plt.show()
-    #%%
-    ind = 1
-    img, coords_rec = gen.read_full(ind)
-    
-    fig, ax = plt.subplots(1, 1, sharex=True, sharey=True)
-    ax.imshow(img[0], cmap = 'gray')
-    ax.plot(coords_rec['cx'], coords_rec['cy'], 'xr')
+#    ind = 1
+#    img, coords_rec = gen.read_full(ind)
+#    
+#    fig, ax = plt.subplots(1, 1, sharex=True, sharey=True)
+#    ax.imshow(img[0], cmap = 'gray')
+#    ax.plot(coords_rec['cx'], coords_rec['cy'], 'xr')
     
     

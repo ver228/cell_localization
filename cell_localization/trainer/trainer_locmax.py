@@ -37,31 +37,31 @@ def train_locmax(save_prefix,
         num_workers = 1,
         init_model_path = None,
         save_frequency = 200,
-        hard_mining_freq = None
+        hard_mining_freq = None,
+        is_variable_size = False,
+        
+        preeval_func = None
+        
+        
         ):
     
+    
+    if is_variable_size:
+        #print('H!!!!')
+        torch.backends.cudnn.benchmark = False
+            
     epoch_init = 0
     
     train_loader = DataLoader(train_flow, 
                             batch_size=batch_size, 
                             shuffle=True, 
                             num_workers=num_workers)
-#    val_loader = DataLoader(val_flow, 
-#                            batch_size=batch_size,
-#                            num_workers=num_workers
-#                            )
-    
+
     peaks_local_args = dict(
             min_distance = 3, 
             threshold_abs = 0.05, 
             threshold_rel = 0.1
             )
-    
-#    peaks_local_args = dict(
-#            min_distance = 3, 
-#            threshold_abs = 0.1, 
-#            threshold_rel = 0.5
-#            )
     
     model = model.to(device)
     
@@ -75,7 +75,7 @@ def train_locmax(save_prefix,
     for epoch in pbar_epoch:
         #Hard Mining
         if hard_mining_freq is not None and epoch > 0 and (epoch + 1) % hard_mining_freq == 0:
-            
+            print('cudnn.benchmark', torch.backends.cudnn.benchmark)
             
             #initialize structure
             hard_neg_data = {}
@@ -98,11 +98,12 @@ def train_locmax(save_prefix,
                     xin = torch.from_numpy(xin[None])
                     xin = xin.to(device)
                     xhat = model(xin)
-                
-                    xout = xhat[0].detach().cpu().numpy()
+                    
+                    xhat_n = preeval_func(xhat)
+                    xout = xhat_n[0].detach().cpu().numpy()
                     
                     bads = []
-                    for iclass in range(model.n_classes):
+                    for iclass in range(xout.shape[0]):
                         _class = iclass + 1
                         rec = coords_rec[coords_rec['type_id'] == _class]
                         target = np.array((rec['cy'], rec['cx'])).T
@@ -189,12 +190,13 @@ def train_locmax(save_prefix,
             
                 xin = torch.from_numpy(img[None])
                 xin = xin.to(device)
-                mask_preds = model(xin)
-            
-                xout = mask_preds[0].detach().cpu().numpy()
+                xhat = model(xin)
+                
+                xhat_n = preeval_func(xhat)
+                xout = xhat_n[0].detach().cpu().numpy()
                 
                 mask_target = []
-                for iclass in range(model.n_classes):
+                for iclass in range(xout.shape[0]):
                     _class = iclass + 1
                     rec = coords_rec[coords_rec['type_id'] == _class]
                     target = np.array((rec['cy'], rec['cx'])).T
@@ -211,39 +213,11 @@ def train_locmax(save_prefix,
                 mask_target = torch.from_numpy(mask_target[None])
                 mask_target = mask_target.to(device)
                 
-                loss = criterion(mask_preds, mask_target)
+                loss = criterion(xhat, mask_target)
                 test_avg_loss += loss.item()
                 
             test_avg_loss /= N
-                
-#        with torch.no_grad():
-#            metrics = np.full((model.n_classes, 3), 1e-3)
-#            for X, target in pbar:
-#                assert not np.isnan(X).any()
-#                assert not np.isnan(target).any()
-#                
-#                X = X.to(device)
-#                target = target.to(device)
-#                pred = model(X)
-#                
-#                loss = criterion(pred, target)
-#                test_avg_loss += loss.item()
-#                
-#                for p, t in zip(pred, target):
-#                    for ind in range(model.n_classes):
-#                        p_map = p[ind].detach().cpu().numpy()
-#                        p_coords = peak_local_max(p_map, min_distance = 3, threshold_abs = 0.1, threshold_rel = 0.5)
-#                        
-#                        
-#                        t_map = t[ind].detach().cpu().numpy()
-#                        t_coords = peak_local_max(t_map, min_distance = 3, threshold_abs = 0.1, threshold_rel = 0.5)
-#                    
-#                        TP, FP, FN, pred_ind, true_ind = evaluate_coordinates(p_coords, t_coords, max_dist = 5)
-#                        metrics[ind] += (TP, FP, FN)
-#                    
-#                
-#        
-        
+     
         
         logger.add_scalar('test_epoch_loss', test_avg_loss, epoch)
         
@@ -257,7 +231,7 @@ def train_locmax(save_prefix,
             logger.add_scalar(f'test_class{ind}_R', R, epoch) 
             logger.add_scalar(f'test_class{ind}_F1', F1, epoch)
             
-        avg_loss = -F1#test_avg_loss
+        avg_loss = test_avg_loss
         
         desc = 'epoch {} , loss={}'.format(epoch, avg_loss)
         pbar_epoch.set_description(desc = desc, refresh=False)

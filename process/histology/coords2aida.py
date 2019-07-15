@@ -10,30 +10,40 @@ import pandas as pd
 from pathlib import Path
 import numpy as np
 import json
-from scipy.spatial.distance import pdist, squareform
 #%%
-def _remove_redundant(coords, min_dist):
-    C = coords[['x', 'y']].values
-    D = pdist(C)
+def _remove_redundant(coords, min_dist = 5):
+    xx, yy = coords['x'].values, coords['y'].values
     
-    Dv = squareform(D)
-    np.fill_diagonal(Dv, 1e5)
+    pairs = []
+    for ii in range(len(xx)-1):
+        dx = xx[ii] - xx[ii+1:]
+        dy = yy[ii] - yy[ii+1:]
+        rr = np.sqrt(dx*dx + dy*dy)
+        invalid = rr < min_dist
+        p2, = np.where(invalid)
+        new_pairs = [(ii, p + ii + 1) for p in p2]
+        pairs += new_pairs
+        
+#    C = coords[['x', 'y']].values
+#    D = pdist(C)
+#    Dv = squareform(D)
+#    np.fill_diagonal(Dv, 1e5)
+#    
+#    maybe_x, maybe_y = np.where(Dv<5)
+#    pairs = [(x,y) if x < y else (y,x) for x, y in zip(maybe_x, maybe_y)]
     
-    maybe_x, maybe_y = np.where(Dv<5)
     
-    pairs = [(x,y) if x < y else (y,x) for x, y in zip(maybe_x, maybe_y)]
+    
     pairs = list(set(pairs))
-    
     v_good, v_bad = map(list, zip(*pairs))
     
     coords_r = coords.drop(v_bad)
     return coords_r
 
-def coords2aida(src_file, save_file):
-    coords = pd.read_csv(src_file)
-    coords.columns = ['label', 'x', 'y']
+def coords2aida(coords, save_file):
     
-    coords = _remove_redundant(coords, min_dist = 6)
+    
+    
     
     out_dict = {'name' : 'Predictions', 'layers' : []}
     
@@ -56,6 +66,7 @@ def coords2aida(src_file, save_file):
     hw_dflt = r_dflt*2
     
     for lab, dat in coords.groupby('label'):
+        dat = _remove_redundant(dat)
         layer_ = {'name' : names_d[lab], 'opacity' : 1, 'items' : []}
         
         
@@ -82,14 +93,21 @@ def coords2aida(src_file, save_file):
         
 
 if __name__ == '__main__':
+    import tqdm
     
-    root_dir = '/Users/avelinojaver/OneDrive - Nexus365/bladder_cancer_tils/predictions'
-    root_dir = Path(root_dir)
+    bn = 'bladder-tiles-roi64-20x_unetv2_l1smooth_20190529_193223_adam_lr6.4e-05_wd0.0_batch64'
+    #coords_dir = Path.home() / 'workspace/localization/predictions/histology_detection' / bn
+    root_dir = Path.home() / 'workspace/localization/predictions/prostate-gland-phenotyping' / bn
     
-    
-    
-    for fname in root_dir.glob('*.csv'):
+    #root_dir = '/Users/avelinojaver/OneDrive - Nexus365/bladder_cancer_tils/predictions'
+    #root_dir = Path(root_dir)
+    fnames = [x for x in root_dir.rglob('*.csv')]
+    for fname in tqdm.tqdm(fnames):
         save_name =  fname.parent / (fname.stem + '.json')
-        coords2aida(fname, save_name)
-    
+        coords = pd.read_csv(fname)
+        coords.columns = ['label', 'x', 'y']
         
+        coords2aida(coords, save_name)
+    
+    
+    

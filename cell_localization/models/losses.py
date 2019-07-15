@@ -9,6 +9,7 @@ Created on Sun Aug 19 10:27:31 2018
 from torch import nn
 import torch.nn.functional as F
 import torch
+import math
 
 class L0AnnelingLoss(nn.Module):
     def __init__(self, anneling_rate=1/50):
@@ -170,6 +171,82 @@ class MaskFocalLoss(nn.Module):
         
         return loss
 
+class MaximumLikelihoodLoss(nn.Module):
+    #based on https://www.robots.ox.ac.uk/~vgg/publications/2018/Neumann18a/neumann18a.pdf
+    def __init__(self, poolbychannel = False):
+        super().__init__()
+        self.poolbychannel = poolbychannel
+        
+    def forward(self, pred, target):
+        n_batch, n_out, w, h = pred.shape
+        pred = pred.contiguous()
+        target = target.contiguous()
+        
+        #I am assuming the target is zeros and ones, where ones are the coordinates to predict
+        if self.poolbychannel:
+            target_l = target.transpose(0, 1).contiguous().view(n_out, -1)
+            pred_l = pred.transpose(0, 1).contiguous().view(n_out, -1)
+            pred_l = nn.functional.log_softmax(pred_l, dim= 1)
+            
+            
+            #ch_losses = -(pred_l*target_l).sum(dim = 1)/target_l.sum(dim = 1)
+            #loss = ch_losses.sum()
+            
+            loss = -(pred_l*target_l).sum()/target_l.sum()
+        else:
+            target_l = target.view(n_batch, n_out, -1)
+            pred_l = pred.view(n_batch, n_out, -1)
+            pred_l = nn.functional.log_softmax(pred_l, dim= 2)
+            loss = -(pred_l*target_l).sum()/target_l.sum()
+            
+        
+        return loss
+
+class MixtureModelLoss(nn.Module):
+    #based on https://www.robots.ox.ac.uk/~vgg/publications/2018/Neumann18a/neumann18a.pdf
+    def __init__(self):
+        super().__init__()
+        
+    def forward(self, pred, target):
+        #I am assuming the output channels a multiple of 5 so it can contain all the model parameters 
+        n_batch, n_out, w, h = pred.shape
+        n_labs = n_out // 5
+        
+        target_l = target.transpose(0, 1).contiguous().view(n_labs, -1)
+        pred_l = pred.transpose(0, 1).contiguous().view(n_labs, 5, -1)
+        
+        out_s = pred_l[:, 0]
+        
+        out_s = nn.functional.log_softmax(out_s, dim= 1)
+        
+        
+        mux = torch.clamp(pred_l[:, 1], -3, 3)
+        muy = torch.clamp(pred_l[:, 2], -3, 3)
+        sx = torch.clamp(pred_l[:, 3], 1, 100)
+        sy = torch.clamp(pred_l[:, 4], 1, 100)
+    
+        eps = 1e-8
+        #I am assuming a rho of zero (no correlation between x and y in the bivariate gaussian)
+        # 1/(2pi*sy*sx)*exp(-(dx^2/sx^2 + dy^2/sy^2)/2)
+        
+        z1 = -((mux*mux)/(sx*sx + eps) + (muy*muy)/(sy*sy + eps))/2 
+        z2 = -torch.log((2*math.pi*sx*sy + 1.)) #i add one for numerical stability 
+        
+        p = target_l*(out_s + z1 + z2)
+        if torch.isnan(p).any() or torch.isinf(z1).any() or torch.isinf(z2).any():
+            raise
+        
+        loss = -p.sum(dim=1)/(target_l.sum(dim=1) + eps)
+        loss = torch.mean(loss)
+        
+        if loss < 0:
+            import pdb
+            pdb.set_trace()
+        
+        return loss
+  
+
+
 def get_loss(loss_type):
     if loss_type == 'l1':
         criterion = nn.L1Loss()
@@ -182,6 +259,15 @@ def get_loss(loss_type):
     
     elif loss_type == 'l2':
         criterion = nn.MSELoss()
+    
+    elif loss_type == 'maxlikelihood':
+        criterion = MaximumLikelihoodLoss()
+        
+    elif loss_type == 'maxlikelihoodpooled':
+        criterion = MaximumLikelihoodLoss(poolbychannel = True)
+    
+    elif loss_type == 'mixturemodelloss':
+        criterion = MixtureModelLoss()
     
     elif loss_type == 'l0anneling':
         criterion = L0AnnelingLoss(anneling_rate=1/50)

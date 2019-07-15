@@ -19,5 +19,5 @@ python -W ignore train_locmax.py \
 --is_preloaded True \
 --n_epochs 1000 \
 --save_frequency 100 \
---hard_mining_freq 1 \
+--hard_mining_freq 10\
 --root_data_dir /tmp/avelino/worm_eggs

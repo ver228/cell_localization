@@ -12,10 +12,10 @@ cd $HOME/GitLab/cell_localization/scripts
 python -W ignore train_locmax.py \
 --batch_size 128  \
 --data_type 'eggs-int' \
---model_name 'unet' \
+--model_name 'unetv2b' \
 --loss_type 'l1smooth' \
 --lr 128e-6 \
---num_workers 3  \
+--num_workers 4  \
 --is_preloaded True \
 --n_epochs 1000 \
 --save_frequency 100 \

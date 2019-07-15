@@ -9,5 +9,12 @@ source activate pytorch-0.4.1
 cd $HOME/GitLab/cell_localization/scripts
 
 
-python -W ignore train_demixer.py --batch_size 64  --data_type 'cell-demixer' --loss_type 'l1smooth' \
---lr 32e-5 --num_workers 8  --n_epochs 500 --save_frequency 50
+python -W ignore train_demixer.py \
+--batch_size 64  \
+--data_type 'cell-demixer' \
+--loss_type 'l1smooth' \
+--lr 32e-5 \
+--num_workers 4  \
+--n_epochs 1000 \
+--save_frequency 100 \
+--is_preloaded True
