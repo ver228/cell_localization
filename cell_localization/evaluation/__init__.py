@@ -1,0 +1,1 @@
+from .localmaxima import score_coordinates

@@ -38,7 +38,7 @@ def cv2_peak_local_max(img, threshold_relative, threshold_abs):
     
     return coords
 
-def evaluate_coordinates(prediction, target, max_dist = 10):
+def score_coordinates(prediction, target, max_dist = 10):
     if prediction.size == 0:
         return 0, 0, len(target), None, None
     
