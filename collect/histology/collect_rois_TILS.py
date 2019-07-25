@@ -36,12 +36,16 @@ def get_valid_dtypes(annotations):
 
 if __name__ == '__main__':
     #annotations_file = Path('/Users/avelinojaver/OneDrive - Nexus365/bladder_cancer_tils/raw/valid_TILs/Bladder_Tiles_Annotation_Study.csv')
-    annotations_file = Path('/Users/avelinojaver/OneDrive - Nexus365/bladder_cancer_tils/eosinophils/eosinophils_sampled_rois/Bladder_Tiles_Annotation_Study_Round_3.csv')
+    #annotations_file = Path('/Users/avelinojaver/OneDrive - Nexus365/bladder_cancer_tils/eosinophils/eosinophils_sampled_rois/Bladder_Tiles_Annotation_Study_Round_3.csv')
+    annotations_file = Path('/Users/avelinojaver/OneDrive - Nexus365/bladder_cancer_tils/TILS_candidates/TILS_candidates_512/Bladder_Tiles_Annotation_Study_Round_2.csv')
+    
     tiles_dir = annotations_file.parent
     
     
     #save_dir = Path('/Users/avelinojaver/OneDrive - Nexus365/bladder_cancer_tils/full_tiles')
-    save_dir = Path('/Users/avelinojaver/OneDrive - Nexus365/bladder_cancer_tils/eosinophils')
+    #save_dir = Path('/Users/avelinojaver/OneDrive - Nexus365/bladder_cancer_tils/training/eosinophils')
+    save_dir = Path('/Users/avelinojaver/OneDrive - Nexus365/bladder_cancer_tils/TILS_candidates/training')
+    
     save_dir.mkdir(exist_ok=True, parents=True)
     
     types_ids = {'Eosinophils' : 2, 'Lymphocytes' : 1}
@@ -51,10 +55,11 @@ if __name__ == '__main__':
         ss = [x for x in ss.split('\n')[1:] if x]
         
     for line in ss:
-        src, _, remain = line.partition(',')
-        annotation_str, _, annotator = remain.rpartition(',')
+        line = line.replace('""', '"')
+        src, _, remain = line.partition('","')
+        annotation_str, _, annotator = remain.rpartition('","')
         
-        dd = json.loads(annotation_str[1:-1])
+        dd = json.loads(annotation_str)
         annotations_l = []
         for lab_group in dd['annotation']['layers']:
             lab_name = lab_group['name']
@@ -66,12 +71,21 @@ if __name__ == '__main__':
         annotations_ori = pd.DataFrame(annotations_l, columns = ['type', 'type_id', 'radius', 'cx', 'cy'])
         
         
-        src_file = tiles_dir / (src[1:-1] + '.png')
+        src_file = tiles_dir / (src[1:] + '.png')
+        assert src_file.exists()
         img_ori = cv2.imread(str(src_file), -1)
         
+        #dd = [int(x.partition('-')[-1]) for x in src.split('_') if (x.startswith('mirax') or x.startswith('aperio'))]
+        #src_magification = dd[0] if dd else 20
+        #assert src_magification in [20, 40]
         
-        src_magification = [int(x.partition('-')[-1]) for x in src.split('_') if (x.startswith('mirax') or x.startswith('aperio'))][0]
-        assert src_magification in [20, 40]
+        dd = src.rpartition('-')[-1]
+        if dd == '512':
+            src_magification = 20
+        elif dd == '1024':
+            src_magification = 40
+        else:
+            raise ValueError(src)
         
         for mm in [20, 40]:
             annotations = annotations_ori.copy()
@@ -109,8 +123,8 @@ if __name__ == '__main__':
             
 #            import matplotlib.pylab as plt
 #            plt.figure()
-#            plt.imshow(img)
+#            plt.imshow(img[..., ::-1])
 #            plt.plot(annotations['cx'], annotations['cy'], '.r')
 #        break
-            
+#            
             

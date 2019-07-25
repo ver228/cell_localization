@@ -28,7 +28,9 @@ if __name__ == '__main__':
     
    #bn = 'woundhealing-v2-mix+Fwoundhealing+roi96_unet-simple_l1smooth-G1.5_20190717_115942_adam_lr6.4e-05_wd0.0_batch64'
    #bn = 'woundhealing-v2-mix+Fwoundhealing+roi48_unet-simple_l2-G1.5_20190717_152330_sgd+stepLR-4-0.1_lr0.000256_wd0.0_batch256'
-   bn = 'woundhealing-v2-mix+Fwoundhealing+roi48_unet-simple_l2-G1.5_20190717_161240_adam_lr0.000128_wd0.0_batch128'
+   #bn = 'woundhealing-v2-mix+Fwoundhealing+roi48_unet-simple_l2-G1.5_20190717_161240_adam_lr0.000128_wd0.0_batch128'
+   
+   
    model_dir = Path.home() / 'workspace/localization/results/locmax_detection/woundhealing-v2'
    
    model, data_flow = load_model(model_dir, bn)

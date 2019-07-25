@@ -36,12 +36,16 @@ def get_valid_dtypes(annotations):
 
 if __name__ == '__main__':
     #annotations_file = Path('/Users/avelinojaver/OneDrive - Nexus365/bladder_cancer_tils/raw/valid_TILs/Bladder_Tiles_Annotation_Study.csv')
-    annotations_file = Path('/Users/avelinojaver/OneDrive - Nexus365/bladder_cancer_tils/eosinophils/eosinophils_sampled_rois/Bladder_Tiles_Annotation_Study_Round_3.csv')
+    #annotations_file = Path('/Users/avelinojaver/OneDrive - Nexus365/bladder_cancer_tils/eosinophils/eosinophils_sampled_rois/Bladder_Tiles_Annotation_Study_Round_3.csv')
+    annotations_file = Path('/Users/avelinojaver/OneDrive - Nexus365/bladder_cancer_tils/TILS_candidates/TILS_candidates_512/Bladder_Tiles_Annotation_Study_Round_2.csv')
+    
     tiles_dir = annotations_file.parent
     
     
     #save_dir = Path('/Users/avelinojaver/OneDrive - Nexus365/bladder_cancer_tils/full_tiles')
-    save_dir = Path('/Users/avelinojaver/OneDrive - Nexus365/bladder_cancer_tils/eosinophils')
+    #save_dir = Path('/Users/avelinojaver/OneDrive - Nexus365/bladder_cancer_tils/training/eosinophils')
+    save_dir = Path('/Users/avelinojaver/OneDrive - Nexus365/bladder_cancer_tils/TILS_candidates/training')
+    
     save_dir.mkdir(exist_ok=True, parents=True)
     
     types_ids = {'Eosinophils' : 2, 'Lymphocytes' : 1}
@@ -51,6 +55,7 @@ if __name__ == '__main__':
         ss = [x for x in ss.split('\n')[1:] if x]
         
     for line in ss:
+        line = line.replace('""', '"')
         src, _, remain = line.partition(',')
         annotation_str, _, annotator = remain.rpartition(',')
         
@@ -107,10 +112,10 @@ if __name__ == '__main__':
                     
                     fid.create_table('/', 'coords', obj = coords)
             
-#            import matplotlib.pylab as plt
-#            plt.figure()
-#            plt.imshow(img)
-#            plt.plot(annotations['cx'], annotations['cy'], '.r')
-#        break
+            import matplotlib.pylab as plt
+            plt.figure()
+            plt.imshow(img[..., ::-1])
+            plt.plot(annotations['cx'], annotations['cy'], '.r')
+        break
             
             

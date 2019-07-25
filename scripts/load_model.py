@@ -12,8 +12,12 @@ from cell_localization.models import CellDetector
 from cell_localization.flow import CoordFlow
 
 import torch
+from pathlib import Path
 
-def load_model(model_dir, bn, flow_subdir = 'validation'):
+def load_model(model_path, flow_subdir = 'validation', data_root_dir = None):
+    model_path = Path(model_path)
+    bn = model_path.parent.name
+    
     data_type, _, remain = bn.partition('+F')
     flow_type, _, remain = remain.partition('+roi')
     
@@ -24,8 +28,6 @@ def load_model(model_dir, bn, flow_subdir = 'validation'):
     remain = remain.split('_')
     loss_type = remain[0]
     
-    
-    model_path = model_dir / data_type / bn / 'checkpoint.pth.tar'
     state = torch.load(model_path, map_location = 'cpu')
     
     data_args = data_types[data_type]
@@ -45,10 +47,13 @@ def load_model(model_dir, bn, flow_subdir = 'validation'):
     model.load_state_dict(state['state_dict'])
     model.eval()
     
+    if data_root_dir is None:
+        data_root_dir = data_args['root_data_dir']
+    
     flow_args = flow_types[flow_type]
-    data_flow = CoordFlow(data_args['root_data_dir'] / flow_subdir,
+    data_flow = CoordFlow(data_root_dir / flow_subdir,
                         **flow_args,
                         is_preloaded = False
                         ) 
     
-    return model, data_flow
+    return model, data_flow, state['epoch']

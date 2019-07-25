@@ -28,7 +28,40 @@ flow_types = {
             'prob_unseeded_patch' : 0.0,
             'int_aug_offset' : (-0.15, 0.15),
             'int_aug_expansion' : (0.9, 1.1)
-            }
+            },
+        
+        'lymphocytes' : {
+            'scale_int' : (0, 255),
+            'zoom_range' : (0.90, 1.1),
+            'prob_unseeded_patch' : 0.25,
+            'int_aug_offset' : (-0.15, 0.15),
+            'int_aug_expansion' : (0.9, 1.1),
+            'valid_labels' : [1]
+            },
+        'lymphocytesonly' : {
+            'scale_int' : (0, 255),
+            'zoom_range' : (0.90, 1.1),
+            'prob_unseeded_patch' : 0.0,
+            'int_aug_offset' : (-0.15, 0.15),
+            'int_aug_expansion' : (0.9, 1.1),
+            'valid_labels' : [1]
+            },
+        'eosinophils' : {
+            'scale_int' : (0, 255),
+            'zoom_range' : (0.90, 1.1),
+            'prob_unseeded_patch' : 0.25,
+            'int_aug_offset' : (-0.15, 0.15),
+            'int_aug_expansion' : (0.9, 1.1),
+            'valid_labels' : [2]
+            },
+        'eosinophilsonly' : {
+            'scale_int' : (0, 255),
+            'zoom_range' : (0.90, 1.1),
+            'prob_unseeded_patch' : 0.25,
+            'int_aug_offset' : (-0.15, 0.15),
+            'int_aug_expansion' : (0.9, 1.1),
+            'valid_labels' : [2]
+            },
         }
 
 data_types = {
@@ -55,6 +88,30 @@ data_types = {
          'n_ch_in'  : 1,
          'n_ch_out' : 1
         },
+                
+        'lymphocytes-20x':{
+        'root_data_dir' : Path.home() / 'workspace/localization/data/histology_bladder/bladder_cancer_tils/lymphocytes/20x',
+        'log_prefix' : 'lymphocytes/20x',
+        'dflt_flow_type' : 'lymphocytes',
+        'n_ch_in' : 3,
+        'n_ch_out' : 1
+        },
+                
+        'lymphocytes-40x':{
+        'root_data_dir' : Path.home() / 'workspace/localization/data/histology_bladder/bladder_cancer_tils/lymphocytes/40x',
+        'log_prefix' : 'lymphocytes/40x',
+        'dflt_flow_type' : 'lymphocytes',
+        'n_ch_in' : 3,
+        'n_ch_out' : 1
+        },
+                
+        'eosinophils-20x':{
+        'root_data_dir' : Path.home() / 'workspace/localization/data/histology_bladder/bladder_cancer_tils/eosinophils/20x',
+        'log_prefix' : 'eosinophils/20x',
+        'dflt_flow_type' : 'eosinophils',
+        'n_ch_in' : 3,
+        'n_ch_out' : 1
+        },
           
     }
 
@@ -66,6 +123,16 @@ model_types = {
              'unet_conv_per_level' : 2,
              'unet_increase_factor' : 2,
              'unet_batchnorm' : False,
+             'unet_init_type' : 'normal',
+             'unet_pad_mode' : 'constant'
+             },
+        'unet-simple-bn' : {
+             'unet_type' : 'unet-simple',
+             'unet_initial_filter_size' : 48, 
+             'unet_levels' : 4, 
+             'unet_conv_per_level' : 2,
+             'unet_increase_factor' : 2,
+             'unet_batchnorm' : True,
              'unet_init_type' : 'normal',
              'unet_pad_mode' : 'constant'
              },

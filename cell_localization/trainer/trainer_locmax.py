@@ -8,7 +8,7 @@ Created on Fri Aug 17 16:46:42 2018
 #import multiprocessing as mp
 #mp.set_start_method('spawn', force=True)
 
-from ..flow import collate_pandas
+from ..flow import collate_simple
 from .misc import save_checkpoint
 from cell_localization.evaluation.localmaxima import score_coordinates
 
@@ -32,9 +32,10 @@ def train_one_epoch(basename, model, optimizer, lr_scheduler, data_loader, devic
     
     pbar = tqdm.tqdm(data_loader, desc = header)
     for images, targets in pbar:
-        images = images.to(device)
-        targets = [{k: v.to(device) for k, v in t.items()} for t in targets]
-
+        
+        images = torch.from_numpy(np.stack(images)).to(device)
+        targets = [{k: torch.from_numpy(v).to(device) for k, v in target.items()} for target in targets]
+        
         loss = model(images, targets)
         optimizer.zero_grad()
         loss.backward()
@@ -198,7 +199,7 @@ def train_locmax(save_prefix,
                             batch_size=batch_size, 
                             shuffle=True, 
                             num_workers=num_workers,
-                            collate_fn = collate_pandas,
+                            collate_fn = collate_simple,
                             )
 
     

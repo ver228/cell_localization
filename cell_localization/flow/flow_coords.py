@@ -20,23 +20,23 @@ import tqdm
 import torch
 from torch.utils.data import Dataset 
 
-def collate_pandas(batch):
-    X, coordinates, labels = zip(*batch)
-    X = torch.from_numpy(np.stack(X))
-    
-    targets = []
-    for labs, coords in zip(coordinates, labels):
-        t = {
-                'coordinates' : torch.from_numpy(coords).long(),
-                'labels' : torch.from_numpy(labs).long()
-                }
-        targets.append(t)
-        
-    
-    X = torch.from_numpy(np.stack(X)).float()
-    
-    return X, targets
+#def collate_pandas(batch):
+#    X, coordinates, labels = zip(*batch)
+#    X = torch.from_numpy(np.stack(X)).float()
+#    
+#    targets = []
+#    for labs, coords in zip(coordinates, labels):
+#        t = {
+#                'coordinates' : torch.from_numpy(coords).long(),
+#                'labels' : torch.from_numpy(labs).long()
+#                }
+#        targets.append(t)
+#    
+#    return X, targets
 
+def collate_simple(batch):
+    return tuple(map(list, zip(*batch)))
+    
 
 class Compose(object):
     def __init__(self, transforms):
@@ -278,7 +278,8 @@ class CoordFlow(Dataset):
                  prob_unseeded_patch = 0.2,
                  int_aug_offset = None,
                  int_aug_expansion = None,
-                 is_preloaded = True
+                 is_preloaded = False,
+                 valid_labels = None
                  ):
         
         
@@ -286,6 +287,8 @@ class CoordFlow(Dataset):
         
         self.root_dir = Path(root_dir)
         self.samples_per_epoch = samples_per_epoch
+        self.valid_labels = valid_labels
+        
         
         self.roi_size = roi_size
         rotation_pad_size = math.ceil(self.roi_size*(math.sqrt(2)-1)/2)
@@ -308,6 +311,7 @@ class CoordFlow(Dataset):
                 RandomIntensityOffset(int_aug_offset),
                 RandomIntensityExpansion(int_aug_expansion),
                 FixDTypes()
+                #I cannot really pass the ToTensor to the dataloader since it crashes when the batchsize is large (>256)
                 ]
         self.transforms_random = Compose(transforms_random)
         
@@ -323,8 +327,9 @@ class CoordFlow(Dataset):
         self.is_preloaded = is_preloaded
         self.data = self.load_data(self.root_dir, padded_roi_size, self.is_preloaded)
         self.type_ids = sorted(list(self.data.keys()))
-        self.num_clases = len(self.type_ids)
+        self.types2label = {k:(ii + 1) for ii, k in enumerate(self.type_ids)}
         
+        self.num_clases = len(self.type_ids)
         
         #flatten data so i can access the whole list by index
         self.data_indexes = [(_type, _fname, ii)for _type, type_data in self.data.items() 
@@ -336,7 +341,9 @@ class CoordFlow(Dataset):
     def load_data(self, root_dir, padded_roi_size, is_preloaded = True):
         data = {} 
         fnames = [x for x in root_dir.rglob('*.hdf5') if not x.name.startswith('.')]
-        for fname in tqdm.tqdm(fnames, 'Preloading Data'):
+        
+        header = 'Preloading Data' if is_preloaded else 'Reading Data'
+        for fname in tqdm.tqdm(fnames, header):
             with tables.File(str(fname), 'r') as fid:
                 img = fid.get_node('/img')
                 img_shape = img.shape[:2]
@@ -346,7 +353,8 @@ class CoordFlow(Dataset):
                 
                 if not '/coords' in fid:
                     continue
-                rec = fid.get_node('/coords')[:]
+                
+                rec = self._read_coords(fid)
                 
                 if is_preloaded:
                     x2add = (img[:], rec)
@@ -354,6 +362,8 @@ class CoordFlow(Dataset):
                     x2add = fname
             
             type_ids = set(np.unique(rec['type_id']).tolist())
+            
+            
             k = fname.parent.name
             for tid in type_ids:
                 if tid not in data:
@@ -364,21 +374,24 @@ class CoordFlow(Dataset):
                 data[tid][k].append(x2add)
         
         return data
+    
+    def _read_coords(self, fid):
+        rec = fid.get_node('/coords')[:]
+        if self.valid_labels is not None:
+            valid = np.isin(rec['type_id'], self.valid_labels)
+            rec = rec[valid]
+        return rec
+
 
     def __len__(self):
         return self.samples_per_epoch
             
     
     def __getitem__(self, ind):
-        #seems like python native multiprocessing does a complete copy to a list or dict https://github.com/pytorch/pytorch/issues/13246
-        #this problem can caused crashes due to lack in the share memory. I will try converting the data into a pandas
         img, target = self.read_random()
+        return img, target
         
-        labels = target['labels'].copy()
-        coordinates = target['coordinates'].copy()
-        del target
         
-        return img, labels, coordinates
 
     def read_full(self, ind):
         (_type, _group, _img_id) = self.data_indexes[ind]
@@ -395,13 +408,19 @@ class CoordFlow(Dataset):
         else:
             fname = input_
             with tables.File(str(fname), 'r') as fid:
-                coords_rec = fid.get_node('/coords')[:]
+                coords_rec = self._read_coords(fid)
                 img = fid.get_node('/img')[:]
         
+        
+        labels = np.array([self.types2label[x] for x in coords_rec['type_id']])
         target = dict(
-                labels = coords_rec['type_id'],
+                labels = labels,
                 coordinates = np.array((coords_rec['cx'], coords_rec['cy'])).T
                 )
+        
+        
+        
+        
         return img, target
         
     
@@ -445,22 +464,8 @@ def coords2mask(coords, roi_size, kernel_size = (25,25), sigma = 4):
 if __name__ == '__main__':
     import matplotlib.pylab as plt
     
+    root_dir = Path.home() / 'workspace/localization/data/histology_bladder/bladder_cancer_tils/eosinophils/20x'
     
-    root_dir = '/Users/avelinojaver/OneDrive - Nexus365/bladder_cancer_tils/rois/20x/train'
-    #root_dir = Path.home() / 'workspace/localization/data/histology_bladder/bladder_cancer_tils/rois/20x/train'
-    #root_dir = Path.home() / 'workspace/localization/data/woundhealing/annotated/v1/no_membrane/train'
-    #root_dir = Path.home() / 'workspace/localization/data/heba/data-uncorrected/train'   
-    
-    #root_dir = Path.home() / 'OneDrive - Nexus365/heba/WoundHealing/data4train/mix/train'
-    #root_dir = Path.home() / 'workspace/localization/test_images/'
-    #loc_gauss_sigma = 2
-    
-#    root_dir = Path.home() / 'workspace/localization/data/woundhealing/demixed_predictions'
-#    loc_gauss_sigma = 2
-#    roi_size = 48
-    
-    #root_dir = Path.home() / 'workspace/localization/data/worm_eggs_adam/validation'
-    #root_dir = Path.home() / 'workspace/localization/data/worm_eggs_adam_refined/validation'
     flow_args = dict(
                 roi_size = 96,
                 #scale_int = (0, 4095),
@@ -470,7 +475,8 @@ if __name__ == '__main__':
                 zoom_range = (0.97, 1.03),
                 
                 int_aug_offset = (-0.2, 0.2),
-                int_aug_expansion = (0.7, 1.3)
+                int_aug_expansion = (0.7, 1.3),
+                valid_labels = [2]
                 )
 
 
@@ -480,22 +486,25 @@ if __name__ == '__main__':
     batch_size = 16
     gauss_sigma = 2
     
+    
+    col_dict = {1 : 'r', 2 : 'g'}
     for _ in tqdm.tqdm(range(10)):
         X, target = gen[0]
         
-        X = X.numpy()
+        #X = X.numpy()
         if X.shape[0] == 3:
-            x = np.rollaxis(X, 0, 3)
+            x = X[::-1]
+            x = np.rollaxis(x, 0, 3)
         else:
             x = X[0]
         
         plt.figure()
         plt.imshow(x,  cmap='gray', vmin = 0.0, vmax = 1.0)
         
-        coords = target['coordinates'].values
-        labels = target['labels'].values
+        coords = target['coordinates']
+        labels = target['labels']
         
         for lab in np.unique(labels):
             good = labels == lab
-            plt.plot(coords[good, 0], coords[good, 1], 'or')
+            plt.plot(coords[good, 0], coords[good, 1], 'o', color = col_dict[lab])
         

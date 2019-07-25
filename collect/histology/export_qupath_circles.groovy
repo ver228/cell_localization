@@ -15,8 +15,12 @@ public void exportQpdataAsJSON(final File srcfile) {
     hierarchy = PathIO.readHierarchy(srcfile)
     for (annotation in hierarchy.getAnnotationObjects()){
         roi = annotation.getROI()
+        
+        print(annotation)
         def pathClass = annotation.getPathClass()
         result += String.format('["%s" , [', pathClass)
+        print(roi)
+        print(pathClass)
         
         for (p in roi.getPolygonPoints()) {
             result += String.format("[%.2f, %.2f],", p.getX(), p.getY()) 

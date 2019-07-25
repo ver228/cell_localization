@@ -11,8 +11,11 @@ import torch.nn.functional as F
 import torch
 
 class LossWithBeliveMaps(nn.Module):
-    def __init__(self, target_loss = F.mse_loss, is_regularized = False, gauss_sigma = 2., device = None):
+    def __init__(self, target_loss = F.mse_loss,  gauss_sigma = 2., is_regularized = False, device = None):
         super().__init__()
+        
+        assert isinstance(gauss_sigma, float)
+        assert isinstance(is_regularized, bool)
         
         self.target_loss = target_loss
         self.is_regularized = is_regularized
@@ -74,8 +77,10 @@ class LossWithBeliveMaps(nn.Module):
     def forward(self, prediction, target):
         target_map = self.targets2belivemaps(target, prediction.shape, device = prediction.device)
         loss = self.target_loss(prediction, target_map)
+        
         if self.is_regularized:
             loss += self.regularize_by_maxima(prediction, target)
+        
         return loss
 
 

@@ -11,7 +11,7 @@ from pathlib import Path
 root_dir = Path(__file__).resolve().parents[1]
 sys.path.append(str(root_dir))
 
-from cell_localization.flow import CoordFlow, collate_pandas
+from cell_localization.flow import CoordFlow, collate_test, collate_pandas
 from cell_localization.models.losses import LossWithBeliveMaps
      
 
@@ -44,7 +44,7 @@ def main():
     #root_dir = Path.home() / 'workspace/localization/data/worm_eggs_adam_refined/validation'
     
     num_workers = 4
-    batch_size = 512
+    batch_size = 128#512
     gauss_sigma = 1.5
     
     flow_args = dict(
@@ -65,13 +65,16 @@ def main():
                         batch_size = batch_size, 
                         shuffle = True, 
                         num_workers = num_workers,
-                        collate_fn = collate_pandas
+                        collate_fn = collate_test
                         )
     
     
     maps_getter = LossWithBeliveMaps(gauss_sigma = gauss_sigma)
-    for X, targets in tqdm.tqdm(loader):
-        belive_map = maps_getter.targets2belivemaps(targets, X.shape)
+    for X in tqdm.tqdm(loader):
+        pass
+    
+#    for X, targets in tqdm.tqdm(loader):
+#        belive_map = maps_getter.targets2belivemaps(targets, X.shape)
 #        for x, maps, target in zip(X, belive_map, targets):
 #            fig, axs = plt.subplots(1, 1 + maps.shape[0])
 #            

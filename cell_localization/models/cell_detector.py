@@ -14,7 +14,7 @@ from .unet import unet_constructor, unet_attention, unet_squeeze_excitation
 
 def normalize_softmax(xhat):
     n_batch, n_channels, w, h = xhat.shape
-    hh = xhat.view(n_batch, n_channels, -1)
+    hh = xhat.contiguous().view(n_batch, n_channels, -1)
     hh = torch.nn.functional.softmax(hh, dim = 2)
     hmax, _ = hh.max(dim=2)
     hh = hh/hmax.unsqueeze(2)
@@ -22,24 +22,34 @@ def normalize_softmax(xhat):
     return hh
 
 def get_loss(loss_type):
-    loss_type, _, gauss_sigma = loss_type.partition('-G')
-    loss_type, _, is_regularized = loss_type.partition('-')
+    
+    loss_t, _, gauss_sigma = loss_type.partition('-G')
+    loss_t, _, is_regularized = loss_t.partition('-')
     is_regularized = is_regularized == 'reg'
     
+    
+    criterion = None
     if gauss_sigma:
         gauss_sigma = float(gauss_sigma)
     
-    preevaluation = lambda x : x
-    if loss_type == 'l1smooth':
-        criterion = LossWithBeliveMaps(nn.SmoothL1Loss(), gauss_sigma, is_regularized)
-    
-    elif loss_type == 'l2':
-        criterion = LossWithBeliveMaps(nn.MSELoss(), gauss_sigma, is_regularized)
-        
-    elif loss_type == 'maxlikelihood':
+    if loss_t == 'maxlikelihood':
         criterion = MaximumLikelihoodLoss()
         preevaluation = normalize_softmax
     else:
+        preevaluation = lambda x : x
+        if loss_t == 'l1smooth':
+            target_loss = nn.SmoothL1Loss()
+        elif loss_t == 'l2':
+            target_loss = nn.MSELoss()
+        elif loss_t == 'l1':
+            target_loss = nn.L1Loss()
+            
+        criterion = LossWithBeliveMaps(target_loss, 
+                                       gauss_sigma = gauss_sigma, 
+                                       is_regularized = is_regularized
+                                       )
+    
+    if criterion is None:
         raise ValueError(loss_type)
     
     return criterion, preevaluation
@@ -59,22 +69,21 @@ def get_unet_model(model_type, n_inputs, n_ouputs,  **argkws):
     return model
 
 class BeliveMapsNMS(nn.Module):
-    def __init__(self, threshold_abs = 0.5, min_distance = 3, exclude_border = True):
+    def __init__(self, threshold_abs = 0.5, min_distance = 3):
         super().__init__()
         self.threshold_abs = threshold_abs
         self.min_distance = min_distance
-        self.exclude_border = exclude_border
-    
+        
     def forward(self, belive_map):
         kernel_size = 2 * self.min_distance + 1
         
         x_max = F.max_pool2d(belive_map, kernel_size, stride = 1, padding = kernel_size//2)
         x_mask = (x_max == belive_map) #nms using local maxima filtering
         
-        if self.exclude_border:
-            exclude = 2 * self.min_distance
-            x_mask[..., :exclude] = x_mask[..., -exclude:] = 0
-            x_mask[..., :exclude, :] = x_mask[..., -exclude:, :] = 0
+#        if self.exclude_border:
+#            exclude = 2 * self.min_distance
+#            x_mask[..., :exclude] = x_mask[..., -exclude:] = 0
+#            x_mask[..., :exclude, :] = x_mask[..., -exclude:, :] = 0
         x_mask &= belive_map > self.threshold_abs
         
         
@@ -105,7 +114,6 @@ class CellDetector(nn.Module):
                  
                  nms_threshold_abs = 0.2,
                  nms_min_distance = 3,
-                 nms_exclude_border = True,
                  
                  return_belive_maps = False
                  ):
@@ -126,7 +134,7 @@ class CellDetector(nn.Module):
         
         
         self.criterion, self.preevaluation = get_loss(loss_type)
-        self.nms = BeliveMapsNMS(nms_threshold_abs, nms_min_distance, nms_exclude_border)
+        self.nms = BeliveMapsNMS(nms_threshold_abs, nms_min_distance)
         
         self.return_belive_maps = return_belive_maps
 
