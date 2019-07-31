@@ -8,15 +8,20 @@ echo "********"
 source activate pytorch-1.0
 cd $HOME/GitLab/cell_localization/scripts
 
+declare -a MODELS=( "unet-deeper5" "unet-input-halved" "unet-simple"  "unet-attention" "unet-SE" )
+
+for model in "${MODELS[@]}"
+do
 
 python -W ignore train_locmax.py \
---batch_size 256  \
---data_type 'bladder-20x' \
---roi_size 64 \
---model_name 'unet-simple' \
---loss_type 'maxlikelihood' \
---lr 256e-6 \
+--batch_size 96  \
+--data_type 'eosinophils-40x' \
+--roi_size 96 \
+--model_name $model \
+--loss_type "l2-G2.5" \
+--lr 96e-6 \
 --num_workers 1  \
 --is_preloaded True \
---n_epochs 2000 \
---save_frequency 200
+--n_epochs 60
+
+done

@@ -15,6 +15,15 @@ flow_types = {
             'int_aug_offset' : (-0.2, 0.2),
             'int_aug_expansion' : (0.5, 1.3)
             },
+        
+        'woundhealing-merged' : {
+                'scale_int' : (0, 1.),
+                'zoom_range' : (0.90, 1.1),
+                'prob_unseeded_patch' : 0.2,
+                'int_aug_offset' : (-0.2, 0.2),
+                'int_aug_expansion' : (0.5, 1.3)
+            },
+        
         'eggs' : {
             'scale_int' : (0, 255),
             'zoom_range' : (0.90, 1.1),
@@ -38,6 +47,16 @@ flow_types = {
             'int_aug_expansion' : (0.9, 1.1),
             'valid_labels' : [1]
             },
+        
+        'lymph-eos' : {
+            'scale_int' : (0, 255),
+            'zoom_range' : (0.90, 1.1),
+            'prob_unseeded_patch' : 0.25,
+            'int_aug_offset' : (-0.15, 0.15),
+            'int_aug_expansion' : (0.9, 1.1),
+            'valid_labels' : [1, 2]
+            },
+        
         'lymphocytesonly' : {
             'scale_int' : (0, 255),
             'zoom_range' : (0.90, 1.1),
@@ -80,6 +99,16 @@ data_types = {
          'n_ch_in'  : 1,
          'n_ch_out' : 1
         },
+        
+        'woundhealing-F0.5-merged': {
+        'root_data_dir' : Path.home() / 'workspace/localization/data/woundhealing/annotated/splitted/F0.5x/',
+        'log_prefix' : 'woundhealing-F0.5-merged',
+        'dflt_flow_type' : 'woundhealing-merged',
+         'n_ch_in'  : 1,
+         'n_ch_out' : 1
+        },
+                
+                
                 
         'worm-eggs-adam': {
         'root_data_dir' : Path.home() / 'workspace/localization/data/worm_eggs_adam',
@@ -89,6 +118,7 @@ data_types = {
          'n_ch_out' : 1
         },
                 
+          
         'lymphocytes-20x':{
         'root_data_dir' : Path.home() / 'workspace/localization/data/histology_bladder/bladder_cancer_tils/lymphocytes/20x',
         'log_prefix' : 'lymphocytes/20x',
@@ -96,6 +126,31 @@ data_types = {
         'n_ch_in' : 3,
         'n_ch_out' : 1
         },
+                
+        'all-lymphocytes-20x':{
+        'root_data_dir' : Path.home() / 'workspace/localization/data/histology_bladder/bladder_cancer_tils/all_lymphocytes/20x',
+        'log_prefix' : 'lymphocytes/20x',
+        'dflt_flow_type' : 'lymphocytes',
+        'n_ch_in' : 3,
+        'n_ch_out' : 1
+        },
+        
+        'lymph-eos-20x' : {
+        'root_data_dir' : Path.home() / 'workspace/localization/data/histology_bladder/bladder_cancer_tils/lymphocytes/20x',
+        'log_prefix' : 'lymphocytes/20x',
+        'dflt_flow_type' : 'lymph-eos',
+        'n_ch_in' : 3,
+        'n_ch_out' : 2
+        },
+                
+        'all-lymph-eos-20x' : {
+        'root_data_dir' : Path.home() / 'workspace/localization/data/histology_bladder/bladder_cancer_tils/all_lymphocytes/20x',
+        'log_prefix' : 'lymphocytes/20x',
+        'dflt_flow_type' : 'lymph-eos',
+        'n_ch_in' : 3,
+        'n_ch_out' : 2
+        },
+              
                 
         'lymphocytes-40x':{
         'root_data_dir' : Path.home() / 'workspace/localization/data/histology_bladder/bladder_cancer_tils/lymphocytes/40x',
@@ -108,6 +163,15 @@ data_types = {
         'eosinophils-20x':{
         'root_data_dir' : Path.home() / 'workspace/localization/data/histology_bladder/bladder_cancer_tils/eosinophils/20x',
         'log_prefix' : 'eosinophils/20x',
+        'dflt_flow_type' : 'eosinophils',
+        'n_ch_in' : 3,
+        'n_ch_out' : 1
+        },
+                
+                
+        'eosinophils-40x':{
+        'root_data_dir' : Path.home() / 'workspace/localization/data/histology_bladder/bladder_cancer_tils/eosinophils/40x',
+        'log_prefix' : 'eosinophils/40x',
         'dflt_flow_type' : 'eosinophils',
         'n_ch_in' : 3,
         'n_ch_out' : 1
@@ -166,12 +230,54 @@ model_types = {
              'unet_init_type' : 'normal',
              'unet_pad_mode' : 'constant'
              }, 
+        'unet-flatv2' : {
+             'unet_type' : 'unet-simple',
+             'unet_initial_filter_size' : 48, 
+             'unet_levels' : 4, 
+             'unet_conv_per_level' : 2,
+             'unet_increase_factor' : 1,
+             'unet_batchnorm' : False,
+             'unet_init_type' : 'normal',
+             'unet_pad_mode' : 'constant'
+             }, 
         'unet-wide' : {
              'unet_type' : 'unet-simple',
              'unet_initial_filter_size' : 48, 
              'unet_levels' : 2, 
              'unet_conv_per_level' : 2,
              'unet_increase_factor' : 4,
+             'unet_batchnorm' : False,
+             'unet_init_type' : 'normal',
+             'unet_pad_mode' : 'constant'
+             }, 
+                
+        'unet-input-halved' : {
+             'unet_type' : 'unet-input-halved',
+             'unet_initial_filter_size' : 48, 
+             'unet_levels' : 4, 
+             'unet_conv_per_level' : 2,
+             'unet_increase_factor' : 2,
+             'unet_batchnorm' : False,
+             'unet_init_type' : 'normal',
+             'unet_pad_mode' : 'constant'
+             }, 
+        'unet-deeper5' : {
+             'unet_type' : 'unet-simple',
+             'unet_initial_filter_size' : 48, 
+             'unet_levels' : 5, 
+             'unet_conv_per_level' : 2,
+             'unet_increase_factor' : 2,
+             'unet_batchnorm' : False,
+             'unet_init_type' : 'normal',
+             'unet_pad_mode' : 'constant'
+             }, 
+        
+        'unet-deeper6' : {
+             'unet_type' : 'unet-simple',
+             'unet_initial_filter_size' : 48, 
+             'unet_levels' : 6, 
+             'unet_conv_per_level' : 2,
+             'unet_increase_factor' : 2,
              'unet_batchnorm' : False,
              'unet_init_type' : 'normal',
              'unet_pad_mode' : 'constant'

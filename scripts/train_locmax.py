@@ -14,7 +14,7 @@ sys.path.append(str(root_dir))
 from config_opts import flow_types, data_types, model_types
 
 from cell_localization.trainer import train_locmax, get_device, get_optimizer
-from cell_localization.flow import CoordFlow
+from cell_localization.flow import CoordFlow, CoordFlowMerged
 from cell_localization.models import CellDetector
 
 import datetime
@@ -44,7 +44,6 @@ def train(
         model_path_init = None,
         
         train_samples_per_epoch = 40960,
-        test_samples_per_epoch = 640,
         
         **argkws
         ):
@@ -75,26 +74,38 @@ def train(
     test_dir = root_data_dir / 'validation'
     
     
+    
+    if '-merged' in data_type:
+        flow_func = CoordFlowMerged
+    else:
+        flow_func = CoordFlow
+    
     print(root_data_dir)
-    train_flow = CoordFlow(train_dir,
+    train_flow = flow_func(train_dir,
                     samples_per_epoch = train_samples_per_epoch,
                     roi_size = roi_size,
                     **flow_args,
                     is_preloaded = is_preloaded
                     )  
     
-    val_flow = CoordFlow(test_dir,
-                    samples_per_epoch = test_samples_per_epoch,
+    val_flow = flow_func(test_dir,
                     roi_size = roi_size,
                     **flow_args,
                     is_preloaded = is_preloaded
                     ) 
     
+    if 'reg' in loss_type:
+        nms_args = dict(nms_threshold_abs = 0.4, nms_threshold_rel = None)
+    else:
+        nms_args = dict(nms_threshold_abs = 0.0, nms_threshold_rel = 0.2)
+    
+    
     model_args = model_types[model_name]
     model = CellDetector(**model_args, 
                          unet_n_inputs = n_ch_in, 
                          unet_n_ouputs = n_ch_out,
-                         loss_type = loss_type
+                         loss_type = loss_type,
+                         **nms_args
                          )
     if model_path_init is not None:
         model_name += '-pretrained'

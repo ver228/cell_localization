@@ -7,7 +7,7 @@ echo "********"
 source activate pytorch-1.0
 cd $HOME/GitLab/cell_localization/scripts
 
-declare -a LOSSES=("l2-G1.5" "l2-reg-G1.5" "l2-reg-G2.5" "l1smooth-reg-G1.5" "l1-reg-G1.5") #"maxlikelihood" 
+declare -a LOSSES=( "l2-reg-G1.5" "l2-reg-G2.5" "l1smooth-reg-G1.5" "l1-reg-G1.5" "l2-G2.5" ) #"maxlikelihood" "l2-G1.5"
 
 for loss in "${LOSSES[@]}"
 do

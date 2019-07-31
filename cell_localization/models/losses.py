@@ -52,13 +52,12 @@ class LossWithBeliveMaps(nn.Module):
             p = pred[ch_ind, coordinates[:, 1], coordinates[:, 0]]
             keypoints.append(p)
         keypoints = torch.cat(keypoints)
-        keypoints = keypoints.clamp(1e-3, 1)
+        keypoints = keypoints.clamp(1e-3, 0.49)
         reg = -keypoints.mean().log()
         return reg
         
     
     def targets2belivemaps(self, targets, expected_shape, device = None):
-        
         masks = torch.zeros(expected_shape, device = device)
         for i, target in enumerate(targets):
             coordinates = target['coordinates']
@@ -82,9 +81,6 @@ class LossWithBeliveMaps(nn.Module):
             loss += self.regularize_by_maxima(prediction, target)
         
         return loss
-
-
-
 
 class MaximumLikelihoodLoss(nn.Module):
     #based on https://www.robots.ox.ac.uk/~vgg/publications/2018/Neumann18a/neumann18a.pdf

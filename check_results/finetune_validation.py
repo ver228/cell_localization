@@ -100,7 +100,7 @@ def load_model(model_path, **argkws):
 def calculate_metrics(model, data_flow, device, thresh2check, max_dist):
     N = len(data_flow.data_indexes)
     
-    metrics = np.zeros((3, len(thresh2check)))
+    metrics = np.zeros((3, 2, len(thresh2check)))
     for ind in tqdm.trange(N):
         
         image, target = data_flow.read_full(ind) #I am evaluating one image at the time because some images can have seperated size
@@ -112,13 +112,16 @@ def calculate_metrics(model, data_flow, device, thresh2check, max_dist):
         assert (target['labels'] <= 1).all() #this code should only be used with models with only one label. I worry for the rest later
         
         pred_coords = predictions['coordinates'].detach().cpu().numpy()
-        pred_scores = predictions['scores'].detach().cpu().numpy()
+        pred_scores_abs = predictions['scores_abs'].detach().cpu().numpy()
+        pred_scores_rel = predictions['scores_rel'].detach().cpu().numpy()
         true_coords = target['coordinates'].detach().cpu().numpy()
         
         for ith, th in enumerate(thresh2check):
-            pred = pred_coords[pred_scores >= th]
-            TP, FP, FN, pred_ind, true_ind = score_coordinates(pred, true_coords, max_dist = max_dist)
-            metrics[:, ith] += (TP, FP, FN)
+            for iscore, pred_scores in enumerate((pred_scores_abs, pred_scores_rel)):
+                
+                pred = pred_coords[pred_scores >= th]
+                TP, FP, FN, pred_ind, true_ind = score_coordinates(pred, true_coords, max_dist = max_dist)
+                metrics[:, iscore, ith] += (TP, FP, FN)
     
     TP, FP, FN = metrics
     P = TP/(TP+FP)
@@ -140,23 +143,37 @@ def calculate_metrics(model, data_flow, device, thresh2check, max_dist):
 
 def get_scores_with_best_threshold(model_path, device, thresh2check, max_dist, train_flow, val_flow):
     model, epoch = load_model(model_path, 
-                            nms_threshold_abs = thresh2check[0],
+                            nms_threshold_abs = 0.,
+                            nms_threshold_rel = 0.,
                             unet_pad_mode = 'reflect'
                             )
     model = model.to(device)
     
     train_scores = calculate_metrics(model, train_flow, device, thresh2check, max_dist)
     
-    ibest = np.nanargmax(train_scores['F1'])
-    best_threshold = thresh2check[ibest]
+    try:
+        ibest = np.nanargmax(train_scores['F1'])
+    except ValueError:
+        ibest = 0
+    
+    ith_val = ibest % len(thresh2check)
+    ith_type = ibest//len(thresh2check)
+    
+    th_type = 'abs' if ith_type == 0 else 'rel'
+    
+    best_threshold = thresh2check[ith_val]
     
     test_scores = calculate_metrics(model, val_flow, device, [best_threshold], max_dist)
-    test_scores = {k:v[0] for k,v in test_scores.items()}
+    
+    test_scores = {k:v[ith_type, 0] for k,v in test_scores.items()}
+    
+    
     
     res = dict(
             train_scores = train_scores, 
             test_scores = test_scores, 
-            best_threshold = best_threshold, 
+            best_threshold_type = th_type,
+            best_threshold_value = best_threshold, 
             epoch = epoch
             
             )
@@ -195,6 +212,8 @@ def main(
     
     model_paths = root_model_dir.rglob(checkpoint_name)
     model_paths = list(model_paths)
+    
+    #model_paths = [x for x in model_paths if 'maxlikelihood' in x.parent.name]
     
     results = {}
     for model_path in tqdm.tqdm(model_paths):

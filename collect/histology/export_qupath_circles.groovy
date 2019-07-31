@@ -18,9 +18,9 @@ public void exportQpdataAsJSON(final File srcfile) {
         
         print(annotation)
         def pathClass = annotation.getPathClass()
-        result += String.format('["%s" , [', pathClass)
-        print(roi)
-        print(pathClass)
+        result += String.format('["%s" , [', annotation)
+        //print(roi)
+        //print(pathClass)
         
         for (p in roi.getPolygonPoints()) {
             result += String.format("[%.2f, %.2f],", p.getX(), p.getY()) 
@@ -48,7 +48,7 @@ println "Java version: " + System.getProperty("java.version")
 //exportQpdataAsJSON(srcfile)
 
 //def rootdir = new File("/Users/avelinojaver/OneDrive - Nexus365/bladder_cancer_tils/eosinophils_regions/");
-def rootdir = new File("/Users/avelinojaver/OneDrive - Nexus365/bladder_cancer_tils/validation_counts/");
+def rootdir = new File("/Users/avelinojaver/OneDrive - Nexus365/bladder_cancer_tils/TMA_counts/");
 rootdir.traverse(type: FileType.FILES, maxDepth: 0) { 
     if (it.name.endsWith('.qpdata')) {
         exportQpdataAsJSON(it)

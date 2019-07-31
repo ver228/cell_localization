@@ -13,10 +13,14 @@ import matplotlib.pylab as plt
 from openslide import OpenSlide
 
 if __name__ == '__main__':
-    slides_dir = Path().home() / 'projects/bladder_cancer_tils/raw/'
+    #slides_dir = Path().home() / 'projects/bladder_cancer_tils/raw/'
+    slides_dir = Path().home() / 'workspace/localization/data/histology_bladder/TMA_counts/'
     
+    #bn = 'bladder-tiles-roi64-20x_unetv2_l1smooth_20190529_193223_adam_lr6.4e-05_wd0.0_batch64'
     
-    bn = 'bladder-tiles-roi64-20x_unetv2_l1smooth_20190529_193223_adam_lr6.4e-05_wd0.0_batch64'
+    bn = 'TH0.1_eosinophils-20x+Feosinophils+roi48_unet-simple_l2-G2.5_20190727_020148_adam_lr0.000256_wd0.0_batch256'
+    #bn = 'TH0.0_eosinophils-20x+Feosinophilsonly+roi48+hard-neg-1_unet-simple_maxlikelihood_20190724_080046_adam_lr0.000256_wd0.0_batch256'
+    
     coords_dir = Path.home() / 'workspace/localization/predictions/histology_detection' / bn
     coords_files = coords_dir.rglob('*.csv')
     
@@ -59,14 +63,12 @@ if __name__ == '__main__':
         #%%
         plt.figure()
         plt.imshow(img)
-        for _type, dat in coords.groupby('0'):
-            c = colors[_type]
-            x = dat['1'].values/downsample
-            y = dat['2'].values/downsample
+        for _type, dat in coords.groupby('label'):
+            dat = dat[dat['score_abs'] > 0.25]
             
-#            x = dat['1'].values - _corner[0]
-#            y = dat['2'].values - _corner[1]
-            
+            #c = colors[_type]
+            x = dat['cx'].values/downsample
+            y = dat['cy'].values/downsample
             
             plt.plot(x, y, '.')
           #%% 

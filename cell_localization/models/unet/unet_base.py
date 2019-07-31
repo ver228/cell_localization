@@ -237,6 +237,23 @@ def unet_constructor(n_inputs,
     
     return model
 
+
+def unet_input_halved(n_inputs, n_ouputs, **argkws):
+    def InitialBlock(n_in, n_filts, batchnorm):
+        return nn.Sequential(
+                ConvBlock(n_in, n_filts, kernel_size = 7, batchnorm = batchnorm),
+                DownSimple([n_filts, n_filts, n_filts], batchnorm = batchnorm)
+            )
+        
+    def OutputBlock(n_in, n_filts, batchnorm):
+        return nn.Sequential(
+                nn.Conv2d(n_in, n_out, kernel_size = 3, padding = 1),
+                nn.Upsample(scale_factor = 2, mode = 'bilinear', align_corners = False)
+            )
+
+    model = unet_constructor(n_in, n_out, InitialBlock = InitialBlock, OutputBlock = OutputBlock, **argkws)
+    return model
+
 if __name__ == '__main__':
     n_in = 3
     n_out = 2
@@ -245,8 +262,13 @@ if __name__ == '__main__':
     X = torch.rand((1, n_in, *im_size))
     target = torch.rand((1, n_out, *im_size))
     
-    model = unet_constructor(n_in, n_out, DownSimple, UpSimple, batchnorm = batchnorm)
+    #model = unet_constructor(n_in, n_out, DownSimple, UpSimple, batchnorm = batchnorm)
+    
+    
+    model = unet_input_halved(n_in, n_out, batchnorm = batchnorm)
     out = model(X)
+    
+    
     
     loss = (out-target).abs().sum()
     loss.backward()

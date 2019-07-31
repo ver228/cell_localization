@@ -19,7 +19,6 @@ import cv2
 
 
 #%%
-
 def get_valid_dtypes(annotations):
     valid_dtypes = []
     for c in annotations:
@@ -36,15 +35,16 @@ def get_valid_dtypes(annotations):
 
 if __name__ == '__main__':
     #annotations_file = Path('/Users/avelinojaver/OneDrive - Nexus365/bladder_cancer_tils/raw/valid_TILs/Bladder_Tiles_Annotation_Study.csv')
-    #annotations_file = Path('/Users/avelinojaver/OneDrive - Nexus365/bladder_cancer_tils/eosinophils/eosinophils_sampled_rois/Bladder_Tiles_Annotation_Study_Round_3.csv')
-    annotations_file = Path('/Users/avelinojaver/OneDrive - Nexus365/bladder_cancer_tils/TILS_candidates/TILS_candidates_512/Bladder_Tiles_Annotation_Study_Round_2.csv')
+    annotations_file = Path('/Users/avelinojaver/OneDrive - Nexus365/bladder_cancer_tils/eosinophils/eosinophils_sampled_rois/Bladder_Tiles_Annotation_Study_Round_3.csv')
+    #annotations_file = Path('/Users/avelinojaver/OneDrive - Nexus365/bladder_cancer_tils/TILS_candidates/TILS_candidates_512/Bladder_Tiles_Annotation_Study_Round_2.csv')
+    assert annotations_file.exists()
     
     tiles_dir = annotations_file.parent
     
     
     #save_dir = Path('/Users/avelinojaver/OneDrive - Nexus365/bladder_cancer_tils/full_tiles')
-    #save_dir = Path('/Users/avelinojaver/OneDrive - Nexus365/bladder_cancer_tils/training/eosinophils')
-    save_dir = Path('/Users/avelinojaver/OneDrive - Nexus365/bladder_cancer_tils/TILS_candidates/training')
+    save_dir = Path('/Users/avelinojaver/OneDrive - Nexus365/bladder_cancer_tils/training/eosinophils')
+    #save_dir = Path('/Users/avelinojaver/OneDrive - Nexus365/bladder_cancer_tils/TILS_candidates/training')
     
     save_dir.mkdir(exist_ok=True, parents=True)
     
@@ -68,7 +68,12 @@ if __name__ == '__main__':
             
             dat = [(lab_name, type_id, x['radius'], x['center']['x'], x['center']['y']) for x in lab_group['items']]
             annotations_l += dat
+            
+        if not annotations_l:
+            continue
+        
         annotations_ori = pd.DataFrame(annotations_l, columns = ['type', 'type_id', 'radius', 'cx', 'cy'])
+        
         
         
         src_file = tiles_dir / (src[1:-1] + '.png')
@@ -111,11 +116,12 @@ if __name__ == '__main__':
                     valid_dtypes = coords = coords.astype(valid_dtypes)
                     
                     fid.create_table('/', 'coords', obj = coords)
+                
             
-            import matplotlib.pylab as plt
-            plt.figure()
-            plt.imshow(img[..., ::-1])
-            plt.plot(annotations['cx'], annotations['cy'], '.r')
-        break
+#            import matplotlib.pylab as plt
+#            plt.figure()
+#            plt.imshow(img[..., ::-1])
+#            plt.plot(annotations['cx'], annotations['cy'], '.r')
+        
             
             

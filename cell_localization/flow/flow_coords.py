@@ -20,20 +20,6 @@ import tqdm
 import torch
 from torch.utils.data import Dataset 
 
-#def collate_pandas(batch):
-#    X, coordinates, labels = zip(*batch)
-#    X = torch.from_numpy(np.stack(X)).float()
-#    
-#    targets = []
-#    for labs, coords in zip(coordinates, labels):
-#        t = {
-#                'coordinates' : torch.from_numpy(coords).long(),
-#                'labels' : torch.from_numpy(labs).long()
-#                }
-#        targets.append(t)
-#    
-#    return X, targets
-
 def collate_simple(batch):
     return tuple(map(list, zip(*batch)))
     
@@ -349,12 +335,15 @@ class CoordFlow(Dataset):
                 img_shape = img.shape[:2]
                 
                 if any([x < padded_roi_size for x in img_shape]):
+                    import pdb
+                    pdb.set_trace()
                     continue
                 
                 if not '/coords' in fid:
                     continue
                 
                 rec = self._read_coords(fid)
+                
                 
                 if is_preloaded:
                     x2add = (img[:], rec)
@@ -418,9 +407,6 @@ class CoordFlow(Dataset):
                 coordinates = np.array((coords_rec['cx'], coords_rec['cy'])).T
                 )
         
-        
-        
-        
         return img, target
         
     
@@ -444,51 +430,114 @@ class CoordFlow(Dataset):
         #assert img.shape[-2:] == (self.roi_size, self.roi_size)
         
         return img, target
+
+#%%
+class CoordFlowMerged(CoordFlow):
+    def __init__(self, *args, **argkws):
+        super().__init__(*args, **argkws)
         
-
-def coords2mask(coords, roi_size, kernel_size = (25,25), sigma = 4):
-    b = np.zeros(roi_size, np.float32)
+        #I am duplicating the indexes so i have a good way to iterate over on the validation
+        self.data_indexes = self.data_indexes + self.data_indexes
+        
     
-    norm_factor = 2*np.pi*(sigma**2) if sigma > 0 else 1.
+    def load_data(self, root_dir, padded_roi_size, is_preloaded = True):
+        data = {} 
+        fnames = [x for x in root_dir.rglob('*.hdf5') if not x.name.startswith('.')]
+        
+        header = 'Preloading Data' if is_preloaded else 'Reading Data'
+        for fname in tqdm.tqdm(fnames, header):
+            with tables.File(str(fname), 'r') as fid:
+                img1 = fid.get_node('/img1')[:]
+                img2 = fid.get_node('/img2')[:]
+                rec = self._read_coords(fid)
+                
+                
+                x2add = (img1[:], img2[:], rec)
+                
+            type_ids = set(np.unique(rec['type_id']).tolist())
+            
+            k = fname.parent.name
+            for tid in type_ids:
+                if tid not in data:
+                    data[tid] = {}
+                if k not in data[tid]:
+                    data[tid][k] = []
+                
+                data[tid][k].append(x2add)
+                
+        return data
     
-    c_cols, c_rows = np.round(coords).astype(np.int)
-    c_rows = np.clip(c_rows, 0, roi_size[0]-1)
-    c_cols = np.clip(c_cols, 0, roi_size[1]-1)
-    b[c_rows, c_cols]  = norm_factor
+    def read_key(self, _type, _group, _img_id, is_full = False):
+        input_ = self.data[_type][_group][_img_id]
+        img1, img2, coords_rec = input_
+        
+        labels = np.array([self.types2label[x] for x in coords_rec['type_id']])
+        target = dict(
+                labels = labels,
+                coordinates = np.array((coords_rec['cx'], coords_rec['cy'])).T
+                )
+        
+        img1 = img1/img1.max()
+        img2 = img2/img2.max()
+            
+        if not is_full:
+            #I am randomly merging this image. This might bring a bit of problems 
+            #on the validation, but for the moment this should work...
+            
+            if random.random() < 0.5:
+                p = np.random.uniform(0., 1.)
+                img = p*img1 + (1-p)*img2
+            else:
+                img = img1 if random.random() < 0.5 else img2 
+            
+            return img, target
+        else:
+            return img1, img2, target
     
-    if sigma > 0:
-        b = cv2.GaussianBlur(b, kernel_size, sigma, sigma, borderType = cv2.BORDER_CONSTANT)  
-    return b
-
+    
+    
+    def read_full(self, ind):
+        (_type, _group, _img_id) = self.data_indexes[ind]
+        img1, img2, target = self.read_key(_type, _group, _img_id, is_full = True)
+        
+        #here i am expecting the indexes to be duplicated. I will assing the first half to one image while the second to the other
+        N = len(self.data_indexes) // 2
+        img = img1 if (ind // N) == 0 else img2
+        
+        img, target = self.transforms_full(img, target)
+        
+        return img, target
+    
+    
+    
 #%%
 if __name__ == '__main__':
     import matplotlib.pylab as plt
     
-    root_dir = Path.home() / 'workspace/localization/data/histology_bladder/bladder_cancer_tils/eosinophils/20x'
+    root_dir = Path.home() / 'workspace/localization/data/histology_bladder/bladder_cancer_tils/lymphocytes/40x/validation'
+    #root_dir = Path.home() / 'workspace/localization/data/woundhealing/annotated/splitted/F0.5x/'
     
     flow_args = dict(
                 roi_size = 96,
                 #scale_int = (0, 4095),
                 scale_int = (0, 255.),
+                #scale_int = (0, 1.),
                 prob_unseeded_patch = 0.0,
               
-                zoom_range = (0.97, 1.03),
+                zoom_range = (0.90, 1.1),
                 
                 int_aug_offset = (-0.2, 0.2),
-                int_aug_expansion = (0.7, 1.3),
-                valid_labels = [2]
+                int_aug_expansion = (0.5, 1.3),
+                valid_labels = [1]
                 )
 
 
+    #gen = CoordFlowMerged(root_dir, **flow_args)
     gen = CoordFlow(root_dir, **flow_args)
     
-    num_workers = 4
-    batch_size = 16
-    gauss_sigma = 2
-    
-    
+
     col_dict = {1 : 'r', 2 : 'g'}
-    for _ in tqdm.tqdm(range(10)):
+    for _ in tqdm.tqdm(range(1000)):
         X, target = gen[0]
         
         #X = X.numpy()
@@ -498,13 +547,15 @@ if __name__ == '__main__':
         else:
             x = X[0]
         
-        plt.figure()
-        plt.imshow(x,  cmap='gray', vmin = 0.0, vmax = 1.0)
+        
         
         coords = target['coordinates']
         labels = target['labels']
+        assert (labels > 0).all()
         
-        for lab in np.unique(labels):
-            good = labels == lab
-            plt.plot(coords[good, 0], coords[good, 1], 'o', color = col_dict[lab])
+#        plt.figure()
+#        plt.imshow(x,  cmap='gray', vmin = 0.0, vmax = 1.0)
+#        for lab in np.unique(labels):
+#            good = labels == lab
+#            plt.plot(coords[good, 0], coords[good, 1], 'o', color = col_dict[lab])
         

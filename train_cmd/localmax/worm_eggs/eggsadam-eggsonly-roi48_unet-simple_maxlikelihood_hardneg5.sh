@@ -7,20 +7,16 @@ echo "********"
 source activate pytorch-1.0
 cd $HOME/GitLab/cell_localization/scripts
 
-declare -a LOSSES=( "l2-reg-G1.5" "l2-reg-G2.5" "l1smooth-reg-G1.5" "l1-reg-G1.5" "l2-G2.5" ) #"maxlikelihood" "l2-G1.5"
-
-for loss in "${LOSSES[@]}"
-do
 
 python -W ignore train_locmax.py \
 --batch_size 128 \
---data_type 'woundhealing-v2-mix' \
---loss_type $loss \
+--data_type 'worm-eggs-adam' \
+--loss_type 'maxlikelihood' \
 --model_name 'unet-simple' \
---roi_size 96 \
+--flow_type 'eggsonly' \
+--roi_size 48 \
 --lr 128e-6 \
 --num_workers 1  \
 --is_preloaded True \
---n_epochs 50 
-
-done
+--hard_mining_freq 5 \
+--n_epochs 120

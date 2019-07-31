@@ -26,7 +26,9 @@ import matplotlib.pylab as plt
 if __name__ == '__main__':
    cuda_id = 0
    device = get_device(cuda_id)
-    
+   flow_type = None 
+   data_type = None
+   
    #bn = 'worm-eggs-adam+Feggs+roi96_unet-simple_l2-G1.5_20190717_162118_adam_lr0.000128_wd0.0_batch128'
    #bn = 'worm-eggs-adam+Feggsonly+roi96+hard-neg-1_unet-simple_l2-G1.5_20190717_162710_adam_lr0.000128_wd0.0_batch128'
    
@@ -40,25 +42,44 @@ if __name__ == '__main__':
    #bn = 'woundhealing-v2-mix+Fwoundhealing+roi96_unet-simple_maxlikelihood_20190718_222136_adam_lr0.000128_wd0.0_batch128'
    #bn = 'woundhealing-v2-mix+Fwoundhealing+roi96_unet-simple_l2-reg-G2.5_20190719_145851_adam_lr0.000128_wd0.0_batch128'
    #bn = 'woundhealing-v2-nuclei+Fwoundhealing+roi48_unet-simple_l1-reg-G1.5_20190719_194158_adam_lr0.000256_wd0.0_batch256'
+   
+   #bn = 'woundhealing-v2-mix/woundhealing-v2-mix+Fwoundhealing+roi96_unet-simple_l2-reg-G1.5_20190726_135131_adam_lr0.000128_wd0.0_batch128'
    #model_dir = Path.home() / 'workspace/localization/results/locmax_detection/woundhealing-v2/'
    
+   #bn = 'woundhealing-v2-mix/woundhealing-v2-mix+Fwoundhealing+roi96_unet-simple_l2-reg-G1.5_20190726_135131_adam_lr0.000128_wd0.0_batch128'
+   #model_dir = Path.home() / 'workspace/localization/results/locmax_detection/woundhealing-v2/'
+   
+   bn = 'woundhealing-F0.5-merged/woundhealing-F0.5-merged+Fwoundhealing-merged+roi48_unet-simple_l2-G2.5_20190730_162214_adam_lr0.000256_wd0.0_batch256'
+   model_dir = Path.home() / 'workspace/localization/results/locmax_detection/woundhealing-F0.5-merged/'
+   #data_type = 'woundhealing-v2-mix'
+   #flow_type = 'woundhealing' 
+   
+   
    #bn = 'eosinophils-20x+Feosinophils+roi64_unet-simple_maxlikelihood_20190723_233841_adam_lr0.000256_wd0.0_batch256'
-   #bn = 'eosinophils-20x+Feosinophils+roi48_unet-simple_maxlikelihood_20190724_080105_adam_lr0.000256_wd0.0_batch256'
-   bn = 'eosinophils-20x+Feosinophilsonly+roi48+hard-neg-1_unet-simple_maxlikelihood_20190724_080046_adam_lr0.000256_wd0.0_batch256'
-   model_dir = Path.home() / 'workspace/localization/results/locmax_detection/eosinophils/20x/'
    
-   #bn = 'limphocytes-20x+Flimphocytes+roi64_unet-simple_maxlikelihood_20190723_233842_adam_lr0.000256_wd0.0_batch256'
-   #bn = 'limphocytes-20x+Flimphocytesonly+roi48+hard-neg-1_unet-simple_maxlikelihood_20190724_080048_adam_lr0.000256_wd0.0_batch256'
-   #model_dir = Path.home() / 'workspace/localization/results/locmax_detection/limphocytes/20x/'
+   #bn = 'eosinophils-20x/eosinophils-20x+Feosinophils+roi48_unet-simple_l2-reg-G1.5_20190726_141052_adam_lr0.000256_wd0.0_batch256'
+   #bn = 'eosinophils-20x/maxlikelihood/eosinophils-20x+Feosinophils+roi48_unet-simple_maxlikelihood_20190725_074506_adam_lr0.000256_wd0.0_batch256'
+   #model_dir = Path.home() / 'workspace/localization/results/locmax_detection/eosinophils/20x/'
    
+   #bn = 'lymphocytes-20x/lymphocytes-20x+Flymphocytes+roi48_unet-simple_l2-reg-G1.5_20190729_190056_adam_lr0.000256_wd0.0_batch256'
+   #bn = 'lymphocytes-20x/lymphocytes-20x+Flymphocytes+roi48_unet-simple-bn_maxlikelihood_20190729_190738_adam_lr0.000256_wd0.0_batch256'
+   
+#   bn = 'lymphocytes-20x/lymphocytes-20x+Flymphocytes+roi48_unet-simple_l2-G2.5_20190729_233108_adam_lr0.000256_wd0.0_batch256'
+#   bn = 'all-lymphocytes-20x/all-lymphocytes-20x+Flymphocytes+roi96_unet-simple_maxlikelihood_20190730_025548_adam_lr0.000128_wd0.0_batch128'
+#   model_dir = Path.home() / 'workspace/localization/results/locmax_detection/lymphocytes/20x/'
+  
    #data_root_dir = Path.home() / 'workspace/localization/data/worm_eggs_first' 
    data_root_dir = None
    
-   model, data_flow, epoch = load_model(model_dir, bn, data_root_dir = data_root_dir, checkpoint_name = 'model_best.pth.tar')
+   
+   model_path = model_dir / bn / 'model_best.pth.tar'
+   model, data_flow, epoch = load_model(model_path, data_root_dir = data_root_dir, flow_type = flow_type, data_type = data_type)
    model = model.to(device)
-    
+
    #%%
    N = len(data_flow.data_indexes)
+   
+   metrics = np.zeros(3)
    for ind in tqdm.trange(N):
         
         image, target = data_flow.read_full(ind) #I am evaluating one image at the time because some images can have seperated size
@@ -70,6 +91,7 @@ if __name__ == '__main__':
         true_coords = target['coordinates'].detach().cpu().numpy()
          
         TP, FP, FN, pred_ind, true_ind = score_coordinates(pred_coords, true_coords, max_dist = 5)
+        metrics += TP, FP, FN
         
         img = image.detach().cpu().numpy()
         if image.shape[0] == 3:
@@ -101,5 +123,12 @@ if __name__ == '__main__':
             axs[0].plot(pred_bad[:, 0], pred_bad[:, 1], 'x', color = 'r')
             axs[0].plot(target_bad[:, 0], target_bad[:, 1], '.', color = 'r')
             axs[0].plot(pred_coords[pred_ind, 0], pred_coords[pred_ind, 1], 'o', color='g')
-            
-       
+    #%%
+   TP, FP, FN = metrics
+   P = TP/(TP+FP)
+   R = TP/(TP+FN)
+   F1 = 2*P*R/(P+R)
+   
+   print(f'P={P} | R={R} | F1={F1}')
+     
+     
