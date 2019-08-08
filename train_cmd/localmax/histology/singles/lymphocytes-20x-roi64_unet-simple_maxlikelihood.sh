@@ -11,13 +11,11 @@ cd $HOME/GitLab/cell_localization/scripts
 
 python -W ignore train_locmax.py \
 --batch_size 256  \
---data_type 'limphocytes-20x' \
---roi_size 48 \
+--data_type 'lymphocytes-20x' \
+--roi_size 64 \
 --model_name 'unet-simple' \
---flow_type 'limphocytesonly' \
 --loss_type 'maxlikelihood' \
 --lr 256e-6 \
 --num_workers 1  \
 --is_preloaded True \
---hard_mining_freq 1 \
 --n_epochs 100

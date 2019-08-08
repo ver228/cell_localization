@@ -126,10 +126,33 @@ class CellDetector(nn.Module):
                  
                  return_belive_maps = False
                  ):
+        
+        
         super().__init__()
         
-        self.n_classes = unet_n_ouputs
+        _dum = set(dir(self))
         
+        self.unet_type = unet_type
+        self.unet_n_inputs = unet_n_inputs
+        self.unet_n_ouputs = unet_n_ouputs
+        self.unet_initial_filter_size = unet_initial_filter_size
+        self.unet_levels = unet_levels
+        self.unet_conv_per_level = unet_conv_per_level
+        self.unet_increase_factor = unet_increase_factor
+        self.unet_batchnorm = unet_batchnorm
+        self.unet_init_type = unet_init_type
+        self.unet_pad_mode = unet_pad_mode
+        
+        self.nms_threshold_abs = nms_threshold_abs
+        self.nms_threshold_rel = nms_threshold_rel
+        self.nms_min_distance = nms_min_distance
+        
+        self.loss_type = loss_type
+        
+        self._input_names = list(set(dir(self)) - _dum) #i want the name of this fields so i can access them if necessary
+        
+        
+        self.n_classes = unet_n_ouputs
         self.mapping_network = get_unet_model(model_type = unet_type, 
                                     n_inputs = unet_n_inputs,
                                     n_ouputs = unet_n_ouputs,
@@ -147,13 +170,21 @@ class CellDetector(nn.Module):
         self.nms = BeliveMapsNMS(nms_threshold_abs, nms_threshold_rel, nms_min_distance)
         
         self.return_belive_maps = return_belive_maps
-
+    
+    
+    @property
+    def input_parameters(self):
+        return {x:getattr(self, x) for x in self._input_names}
+        
+    
     def forward(self, x, targets = None):
         xhat = self.mapping_network(x)
          
         outputs = []
         if self.training or (targets is not None):
-            loss = self.criterion(xhat, targets)
+            loss = dict(
+                loss_loc = self.criterion(xhat, targets)
+                )
             outputs.append(loss)
         
         

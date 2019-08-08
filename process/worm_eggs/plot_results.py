@@ -9,15 +9,17 @@ Created on Tue May 14 13:59:05 2019
 from pathlib import Path
 import pandas as pd
 import numpy as np
-
+import matplotlib.pylab as plt
+from scipy.stats import spearmanr, pearsonr
+    
 if __name__ == '__main__':
     data_root_dir = Path.home() / 'workspace/localization/data/worm_eggs_first/'
     targets_dir = Path.home() / 'workspace/WormData/screenings/Drug_Screening/MaskedVideos/'
-    #bn = 'eggs-int_unet_hard-neg-freq1_l1smooth_20190513_081902_adam_lr0.000128_batch128'
-    bn = 'eggsadamI-roi96_unetv2b-bn_hard-neg-freq10_maxlikelihoodpooled_20190619_081454_adam_lr3.2e-05_wd0.0_batch64'
-    preds_dir = Path.home() / 'workspace/localization/predictions/worm_eggs/' / bn
     
+    bn = 'worm-eggs-adam+Feggsonly+roi96+hard-neg-5_unet-simple_maxlikelihood_20190717_224214_adam_lr0.000128_wd0.0_batch128'
     
+    #bn = 'worm-eggs-adam+Feggs+roi128+hard-neg-5_clf+unet-simple_maxlikelihood_20190803_225943_adam_lr0.000128_wd0.0_batch64'
+    preds_dir = Path.home() / 'workspace/localization/predictions/worm_eggs/' / 'Drug_Screening' / bn
     
     fnames = data_root_dir.rglob('*.hdf5')
     
@@ -82,7 +84,8 @@ if __name__ == '__main__':
         
     #%%
     
-    import matplotlib.pylab as plt
+    
+    
     plt.figure()
     
     
@@ -92,37 +95,45 @@ if __name__ == '__main__':
     
     cc = plt.xlim()
     plt.plot(cc, cc, ':k')
+    
+    
+    spearman_coeff, spearman_pval = spearmanr(counts_df['pred_counts'], counts_df['target_counts'])
+    pearson_coeff, pearson_pval = pearsonr(counts_df['pred_counts'], counts_df['target_counts'])
+    
+    
+    print(f'Spearman Coeff = {spearman_coeff}')
+    print(f'Pearson Coeff = {pearson_coeff}')
     #%%
-    for strain_name, strain_data in counts_df.groupby('strain_name'):
-            
-        for drug_name, drug_df in strain_data.groupby('drug_name'):
-            if drug_name == 'Blank':
-                continue
-            
-            fig, axs = plt.subplots(3, 1, figsize = (5, 15))
-            for drug_conc, df in drug_df.groupby('drug_concentration'):
-            
-                
-                axs[0].plot(df['pred_counts'], df['target_counts'], 'o', label = drug_conc)
-            
-                axs[1].plot(df['frame_number'], df['pred_counts'], 'o')
-                axs[2].plot(df['frame_number'], df['target_counts'], 'o')
-            
-            
-            axs[0].set_ylabel('Target Counts')
-            axs[0].set_xlabel('Predicted Counts')
-            axs[0].plot(cc, cc, ':k')
-            axs[0].legend()
-            
-            axs[1].set_xlabel('Frame Number')
-            axs[1].set_xlabel('Predicted Counts')
-            
-            axs[2].set_ylabel('Frame Number')
-            axs[2].set_xlabel('Target Counts')
-            
-            
-            
-            plt.suptitle((strain_name, drug_name))
+#    for strain_name, strain_data in counts_df.groupby('strain_name'):
+#            
+#        for drug_name, drug_df in strain_data.groupby('drug_name'):
+#            if drug_name == 'Blank':
+#                continue
+#            
+#            fig, axs = plt.subplots(3, 1, figsize = (5, 15))
+#            for drug_conc, df in drug_df.groupby('drug_concentration'):
+#            
+#                
+#                axs[0].plot(df['pred_counts'], df['target_counts'], 'o', label = drug_conc)
+#            
+#                axs[1].plot(df['frame_number'], df['pred_counts'], 'o')
+#                axs[2].plot(df['frame_number'], df['target_counts'], 'o')
+#            
+#            
+#            axs[0].set_ylabel('Target Counts')
+#            axs[0].set_xlabel('Predicted Counts')
+#            axs[0].plot(cc, cc, ':k')
+#            axs[0].legend()
+#            
+#            axs[1].set_xlabel('Frame Number')
+#            axs[1].set_xlabel('Predicted Counts')
+#            
+#            axs[2].set_ylabel('Frame Number')
+#            axs[2].set_xlabel('Target Counts')
+#            
+#            
+#            
+#            plt.suptitle((strain_name, drug_name))
             
     
     

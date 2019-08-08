@@ -10,12 +10,13 @@ from pathlib import Path
 import pickle
 
 if __name__ == '__main__':
-    #root_dir = Path.home() / 'workspace/localization/results/locmax_detection/woundhealing-v2/woundhealing-v2-mix/different_losses/'
-    #root_dir = Path.home() / 'workspace/localization/results/locmax_detection/woundhealing-v2/woundhealing-v2-nuclei/different_losses/'
-    #root_dir = Path.home() / 'workspace/localization/results/locmax_detection/eosinophils/20x/eosinophils-20x/different_losses'
-    #root_dir = Path.home() / 'workspace/localization/results/locmax_detection/eosinophils/20x/eosinophils-20x/different_models'
+    root_dir = Path.home() / 'workspace/localization/results/locmax_detection/woundhealing-v2/woundhealing-v2-mix/different_losses/'
+    root_dir = Path.home() / 'workspace/localization/results/locmax_detection/woundhealing-v2/woundhealing-v2-nuclei/different_losses/'
+    root_dir = Path.home() / 'workspace/localization/results/locmax_detection/eosinophils/20x/eosinophils-20x/different_losses'
+    root_dir = Path.home() / 'workspace/localization/results/locmax_detection/eosinophils/20x/eosinophils-20x/different_models'
     root_dir = Path.home() / 'workspace/localization/results/locmax_detection/lymphocytes/20x/'
-    #root_dir = Path.home() / 'workspace/localization/results/locmax_detection/eggs/worm-eggs-adam'
+    #root_dir = Path.home() / 'workspace/localization/results/locmax_detection/lymphocytes/40x/'
+    root_dir = Path.home() / 'workspace/localization/results/locmax_detection/eggs/worm-eggs-adam'
     
     score_file = root_dir / 'scores.p'
     
@@ -33,6 +34,7 @@ if __name__ == '__main__':
         
         
         th_str = f"th_{res['best_threshold_type']}={res['best_threshold_value']:.3}"
+        #th_str = f"th_{res['best_threshold']}"
         
         F1_str = f"F1={res['test_scores']['F1']:.3}"
         

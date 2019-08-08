@@ -11,7 +11,7 @@ cd $HOME/GitLab/cell_localization/scripts
 python -W ignore train_locmax.py \
 --batch_size 128 \
 --data_type 'worm-eggs-adam' \
---loss_type 'maxlikelihood' \
+--loss_type 'l2-G2.5' \
 --model_name 'unet-simple' \
 --flow_type 'eggsonly' \
 --roi_size 96 \

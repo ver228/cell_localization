@@ -49,8 +49,8 @@ if __name__ == '__main__':
    #bn = 'woundhealing-v2-mix/woundhealing-v2-mix+Fwoundhealing+roi96_unet-simple_l2-reg-G1.5_20190726_135131_adam_lr0.000128_wd0.0_batch128'
    #model_dir = Path.home() / 'workspace/localization/results/locmax_detection/woundhealing-v2/'
    
-   bn = 'woundhealing-F0.5-merged/woundhealing-F0.5-merged+Fwoundhealing-merged+roi48_unet-simple_l2-G2.5_20190730_162214_adam_lr0.000256_wd0.0_batch256'
-   model_dir = Path.home() / 'workspace/localization/results/locmax_detection/woundhealing-F0.5-merged/'
+   #bn = 'woundhealing-F0.5-merged/woundhealing-F0.5-merged+Fwoundhealing-merged+roi48_unet-simple_l2-G2.5_20190730_162214_adam_lr0.000256_wd0.0_batch256'
+   #model_dir = Path.home() / 'workspace/localization/results/locmax_detection/woundhealing-F0.5-merged/'
    #data_type = 'woundhealing-v2-mix'
    #flow_type = 'woundhealing' 
    
@@ -64,9 +64,16 @@ if __name__ == '__main__':
    #bn = 'lymphocytes-20x/lymphocytes-20x+Flymphocytes+roi48_unet-simple_l2-reg-G1.5_20190729_190056_adam_lr0.000256_wd0.0_batch256'
    #bn = 'lymphocytes-20x/lymphocytes-20x+Flymphocytes+roi48_unet-simple-bn_maxlikelihood_20190729_190738_adam_lr0.000256_wd0.0_batch256'
    
-#   bn = 'lymphocytes-20x/lymphocytes-20x+Flymphocytes+roi48_unet-simple_l2-G2.5_20190729_233108_adam_lr0.000256_wd0.0_batch256'
-#   bn = 'all-lymphocytes-20x/all-lymphocytes-20x+Flymphocytes+roi96_unet-simple_maxlikelihood_20190730_025548_adam_lr0.000128_wd0.0_batch128'
-#   model_dir = Path.home() / 'workspace/localization/results/locmax_detection/lymphocytes/20x/'
+   #bn = 'lymphocytes-20x/lymphocytes-20x+Flymphocytes+roi48_unet-simple_l2-G2.5_20190729_233108_adam_lr0.000256_wd0.0_batch256'
+   #bn = 'all-lymphocytes-20x/all-lymphocytes-20x+Flymphocytes+roi96_unet-simple_maxlikelihood_20190730_025548_adam_lr0.000128_wd0.0_batch128'
+   #model_dir = Path.home() / 'workspace/localization/results/locmax_detection/lymphocytes/20x/'
+
+   bn = 'worm-eggs-adam+Feggsonly+roi96+hard-neg-5_unet-simple_maxlikelihood_20190802_161236_adam_lr0.000128_wd0.0_batch128'#'worm-eggs-adam+Feggsonly+roi96+hard-neg-5_unet-simple_maxlikelihood_20190717_224214_adam_lr0.000128_wd0.0_batch128'
+   model_dir =  Path().home() / 'workspace/localization/results/locmax_detection/eggs/worm-eggs-adam/'
+
+
+   #bn = 'lymphocytes-40x/lymphocytes-40x+Flymphocytes+roi96_unet-attention_l2-G2.5_20190803_104752_adam_lr9.6e-05_wd0.0_batch96'
+   #model_dir = Path.home() / 'workspace/localization/results/locmax_detection/lymphocytes/40x/'
   
    #data_root_dir = Path.home() / 'workspace/localization/data/worm_eggs_first' 
    data_root_dir = None
@@ -77,6 +84,7 @@ if __name__ == '__main__':
    model = model.to(device)
 
    #%%
+   
    N = len(data_flow.data_indexes)
    
    metrics = np.zeros(3)
@@ -90,7 +98,7 @@ if __name__ == '__main__':
         pred_coords = predictions[0]['coordinates'].detach().cpu().numpy()
         true_coords = target['coordinates'].detach().cpu().numpy()
          
-        TP, FP, FN, pred_ind, true_ind = score_coordinates(pred_coords, true_coords, max_dist = 5)
+        TP, FP, FN, pred_ind, true_ind = score_coordinates(pred_coords, true_coords, max_dist = 10)
         metrics += TP, FP, FN
         
         img = image.detach().cpu().numpy()

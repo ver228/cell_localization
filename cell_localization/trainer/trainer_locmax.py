@@ -12,6 +12,7 @@ from ..flow import collate_simple
 from .misc import save_checkpoint
 from cell_localization.evaluation.localmaxima import score_coordinates
 
+from collections import defaultdict
 from tensorboardX import SummaryWriter
 import torch
 from torch.utils.data import DataLoader
@@ -28,7 +29,7 @@ def train_one_epoch(basename, model, optimizer, lr_scheduler, data_loader, devic
     model.train()
     header = f'{basename} Train Epoch: [{epoch}]'
     
-    train_avg_loss = 0
+    train_avg_losses = defaultdict(int)
     
     pbar = tqdm.tqdm(data_loader, desc = header)
     for images, targets in pbar:
@@ -36,21 +37,31 @@ def train_one_epoch(basename, model, optimizer, lr_scheduler, data_loader, devic
         images = torch.from_numpy(np.stack(images)).to(device)
         targets = [{k: torch.from_numpy(v).to(device) for k, v in target.items()} for target in targets]
         
-        loss = model(images, targets)
+        losses = model(images, targets)
+        
+        
+        loss = sum([x for x in losses.values()])
         optimizer.zero_grad()
         loss.backward()
-        clip_grad_norm_(model.parameters(), 0.5) # I was having problems here if i do not include batch norm...
+        clip_grad_norm_(model.parameters(), 0.5) # I was having problems here before. I am not completely sure this makes a difference now
         optimizer.step()
         
         if lr_scheduler is not None:
             lr_scheduler.step()
         
-        train_avg_loss += loss.item()
+        for k,l in losses.items():
+            train_avg_losses[k] += l.item()
+     
         
-    train_avg_loss /= len(data_loader)
+    train_avg_losses = {k: loss / len(data_loader) for k, loss in train_avg_losses.items()} #average loss
+    train_avg_loss = sum([x for x in train_avg_losses.values()]) # total loss
+    
+    #save data into the logger
+    for k, loss in train_avg_losses.items():
+        logger.add_scalar('train_' + k, loss, epoch)
     logger.add_scalar('train_epoch_loss', train_avg_loss, epoch)
     
-    return train_avg_loss    
+    return train_avg_loss
 
 def metrics2scores(metrics, logger, prefix, epoch):
     
@@ -75,7 +86,7 @@ def evaluate_one_epoch(basename, model, data_loader, device, epoch, logger):
     
     metrics = np.zeros((model.n_classes, 3))
     model_time_avg = 0
-    test_avg_loss = 0
+    test_avg_losses = defaultdict(int)
     
     N = len(data_loader.data_indexes)
     for ind in tqdm.trange(N, desc = header):
@@ -86,11 +97,15 @@ def evaluate_one_epoch(basename, model, data_loader, device, epoch, logger):
         if torch.cuda.is_available():
             torch.cuda.synchronize()
         model_time = time.time()
-        loss, outputs = model(image[None], [target])
+        losses, outputs = model(image[None], [target])
+        
+        
         pred = {k: v.to(cpu_device) for k, v in outputs[0].items()}
         
         model_time_avg += time.time() - model_time
-        test_avg_loss += loss.item()
+        
+        for k,l in losses.items():
+            test_avg_losses[k] += l.item()
         
         pred_coords = pred['coordinates'].detach().cpu().numpy()
         pred_labels = pred['labels'].detach().cpu().numpy()
@@ -102,14 +117,18 @@ def evaluate_one_epoch(basename, model, data_loader, device, epoch, logger):
             pred = pred_coords[pred_labels == iclass + 1]
             true = target_coords[target_labels == iclass + 1]
         
-            
             TP, FP, FN, pred_ind, true_ind = score_coordinates(pred, true, max_dist = 5)
             metrics[iclass, :] += TP, FP, FN
     
     model_time_avg /= N
-    test_avg_loss /= N
-    logger.add_scalar('model_time', model_time_avg, epoch)
+    test_avg_losses = {k:loss/N for k, loss in test_avg_losses.items()} #get the average...
+    test_avg_loss = sum([x for x in test_avg_losses.values()]) #... and the total loss
+    
+    #save data into the logger
+    for k, loss in test_avg_losses.items():
+        logger.add_scalar('val_' + k, loss, epoch)
     logger.add_scalar('val_avg_loss', test_avg_loss, epoch)
+    logger.add_scalar('model_time', model_time_avg, epoch)
     
     scores = metrics2scores(metrics, logger, 'val', epoch)
     
@@ -247,6 +266,9 @@ def train_locmax(save_prefix,
                 'epoch': epoch,
                 'state_dict': model.state_dict(),
                 'optimizer' : optimizer.state_dict(),
+                'model_input_parameters' : model.input_parameters,
+                'train_flow_input_parameters': train_loader.dataset.input_parameters,
+                'val_flow_input_parameters': train_loader.dataset.input_parameters
             }
         
         

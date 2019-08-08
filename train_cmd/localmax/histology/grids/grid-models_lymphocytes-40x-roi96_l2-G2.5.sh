@@ -8,7 +8,7 @@ echo "********"
 source activate pytorch-1.0
 cd $HOME/GitLab/cell_localization/scripts
 
-declare -a MODELS=( "unet-deeper5" "unet-input-halved" "unet-simple"  "unet-attention" "unet-SE" )
+declare -a MODELS=( "unet-input-halved" "unet-attention"   ) # "unet-SE" "unet-deeper5" "unet-simple"  
 
 for model in "${MODELS[@]}"
 do

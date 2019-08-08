@@ -19,4 +19,4 @@ python -W ignore train_locmax.py \
 --num_workers 1  \
 --is_preloaded True \
 --hard_mining_freq 5 \
---n_epochs 1000
+--n_epochs 150

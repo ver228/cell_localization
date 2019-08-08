@@ -79,7 +79,7 @@ class AttentionBlock(nn.Module):
         return y
 
 class UpAttention(UpSimple):
-    def __init__(self, *args, attn_gating_channels = None, attn_in_channels = None, **argkws):
+    def __init__(self, *args, attn_gating_channels = None, attn_in_channels = None, batchnorm = False, **argkws):
         if attn_gating_channels is None:
             raise ValueError(f'Please give a valid value for attention filters.')
         
@@ -93,21 +93,21 @@ class UpAttention(UpSimple):
         x = super().forward(x1, x2_gated)
         return x
 
-def unet_attention(n_in, n_out, factor = 2, **argkws):
+def unet_attention(n_in, n_out, increase_factor = 2, **argkws):
     
     
     def UpAttentionS(n_filters, **argkws):
         #I am adding this function to automatically get the number of expected filters between layers.
         #Since I am calculating this automatically in `unet_constructor` I just need `factor` and the current number of filters
         
-        attn_in_channels = int(math.ceil((n_filters[0])/(factor + 1)))
+        attn_in_channels = int(math.ceil((n_filters[0])/(increase_factor + 1)))
         attn_gating_channels = n_filters[0] - attn_in_channels
         return UpAttention(n_filters, 
                            attn_in_channels = attn_in_channels, 
                            attn_gating_channels = attn_gating_channels,
                            **argkws)
     
-    model = unet_constructor(n_in, n_out, DownSimple, UpAttentionS, factor = factor, **argkws)
+    model = unet_constructor(n_in, n_out, DownSimple, UpAttentionS, increase_factor = increase_factor, **argkws)
     return model
 
  #%%      

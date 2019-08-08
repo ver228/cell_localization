@@ -64,6 +64,7 @@ class DownSimple(nn.Module):
                  n_filters,
                  n_conv3x3 = 1, 
                  **argkws):
+        
         super().__init__()
         self.n_filters = n_filters
         
@@ -71,8 +72,8 @@ class DownSimple(nn.Module):
         for ii in range(len(n_filters) - 1):
             n_in, n_out = n_filters[ii], n_filters[ii+1]
             _layers += ConvBlock(n_in, n_out, **argkws)
+
         self.conv = nn.Sequential(*_layers)
-        
         self.pool = nn.MaxPool2d(2)
 
     def forward(self, x):
@@ -121,10 +122,11 @@ class UpSimple(nn.Module):
 class UNetBase(nn.Module):
     def __init__(self, 
                  initial_block,
-                down_blocks,
-                up_blocks,
-                output_block,
-                 pad_mode = 'constant'
+                 down_blocks,
+                 up_blocks,
+                 output_block,
+                 pad_mode = 'constant',
+                 return_feat_maps = False
                  ):
         super().__init__()
         
@@ -136,8 +138,10 @@ class UNetBase(nn.Module):
         
         #used only if the image size does not match the corresponding unet levels
         self.pad_mode = pad_mode
+        self.return_feat_maps = return_feat_maps
         
         
+        self.n_levels = len(down_blocks)
     
     def _unet(self, x_input):    
         x = self.initial_block(x_input)
@@ -147,19 +151,22 @@ class UNetBase(nn.Module):
             x_downs.append(x)
             x = down(x)
         
+        feats = [x]
         for x_down, up in zip(x_downs[::-1], self.up_blocks):
             x = up(x, x_down)
+            feats.append(x)
         
         x = self.output_block(x)
         
-        return x
+        return x, feats
+        
     
     @staticmethod
-    def calculate_padding(x_shape):
+    def calculate_padding(x_shape, n_levels):
         # the input shape must be divisible by 32 otherwise it will be cropped due 
         #to the way the upsampling in the network is done. Therefore it is better to path 
         #the image and recrop it to the original size
-        nn = 2**5
+        nn = 2**n_levels
         ss = [math.ceil(x/nn)*nn - x for x in x_shape]
         pad_ = [(int(math.floor(x/2)),int(math.ceil(x/2))) for x in ss]
         
@@ -170,13 +177,18 @@ class UNetBase(nn.Module):
         return pad_, pad_inv_
     
     def forward(self, x_input):
-        pad_, pad_inv_ = self.calculate_padding(x_input.shape[2:])
+        pad_, pad_inv_ = self.calculate_padding(x_input.shape[2:], (self.n_levels + 1))
         
         x_input = F.pad(x_input, pad_, mode = self.pad_mode)
-        x = self._unet(x_input)
+        x, feats = self._unet(x_input)
+        
+        
         x = F.pad(x, pad_inv_)
         
-        return x
+        if self.return_feat_maps:
+            return x, feats
+        else:
+            return x
     
 #%%
 def unet_constructor(n_inputs,
@@ -191,7 +203,8 @@ def unet_constructor(n_inputs,
                      increase_factor = 2,
                      batchnorm = False,
                      init_type = 'xavier',
-                     pad_mode = 'constant'
+                     pad_mode = 'constant', 
+                     return_feat_maps = False
                      ):
     
     down_filters = []
@@ -208,6 +221,8 @@ def unet_constructor(n_inputs,
         filters = [nf + nf_next] + [nf_next]*conv_per_level
         nf = nf_next
         up_filters.append(filters)
+    
+    
     
     if DownBlock is None:
         DownBlock = DownSimple
@@ -227,7 +242,7 @@ def unet_constructor(n_inputs,
     up_blocks = [UpBlock(x, batchnorm = batchnorm) for x in up_filters]
     output_block = OutputBlock(initial_filter_size, n_ouputs, batchnorm = batchnorm)
     
-    model = UNetBase(initial_block, down_blocks, up_blocks, output_block, pad_mode = pad_mode)
+    model = UNetBase(initial_block, down_blocks, up_blocks, output_block, pad_mode = pad_mode, return_feat_maps = return_feat_maps)
 
     #initialize model
     if init_type is not None:
@@ -245,33 +260,34 @@ def unet_input_halved(n_inputs, n_ouputs, **argkws):
                 DownSimple([n_filts, n_filts, n_filts], batchnorm = batchnorm)
             )
         
-    def OutputBlock(n_in, n_filts, batchnorm):
+    def OutputBlock(n_in, n_out, batchnorm):
         return nn.Sequential(
                 nn.Conv2d(n_in, n_out, kernel_size = 3, padding = 1),
                 nn.Upsample(scale_factor = 2, mode = 'bilinear', align_corners = False)
             )
 
-    model = unet_constructor(n_in, n_out, InitialBlock = InitialBlock, OutputBlock = OutputBlock, **argkws)
+    model = unet_constructor(n_inputs, n_ouputs, InitialBlock = InitialBlock, OutputBlock = OutputBlock, **argkws)
     return model
 
 if __name__ == '__main__':
     n_in = 3
     n_out = 2
     batchnorm = True
-    im_size  = 196, 196
+    im_size  = 128, 128
     X = torch.rand((1, n_in, *im_size))
     target = torch.rand((1, n_out, *im_size))
     
     #model = unet_constructor(n_in, n_out, DownSimple, UpSimple, batchnorm = batchnorm)
     
     
-    model = unet_input_halved(n_in, n_out, batchnorm = batchnorm)
-    out = model(X)
+    model = unet_input_halved(n_in, n_out, levels = 5, increase_factor = 1.5, batchnorm = batchnorm, return_feat_maps = False)
+    xout = model(X)
     
+#    for f in feats:
+#        print(f.shape)
     
-    
-    loss = (out-target).abs().sum()
+    loss = (xout-target).abs().sum()
     loss.backward()
     
-    print(out.size())
+    print(xout.size())
     

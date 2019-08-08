@@ -8,6 +8,7 @@ Created on Tue Apr 30 16:34:06 2019
 import os
 import torch
 import shutil
+
 def save_checkpoint(state, is_best, save_dir, filename='checkpoint.pth.tar'):
     checkpoint_path = os.path.join(save_dir, filename)
     torch.save(state, checkpoint_path)

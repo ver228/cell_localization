@@ -20,9 +20,9 @@ import tqdm
 import torch
 from torch.utils.data import Dataset 
 
+
 def collate_simple(batch):
     return tuple(map(list, zip(*batch)))
-    
 
 class Compose(object):
     def __init__(self, transforms):
@@ -254,6 +254,7 @@ class ToTensor(object):
         
         return image, target
 #%%
+#@add_input_params
 class CoordFlow(Dataset):
     def __init__(self, 
                  root_dir,
@@ -264,28 +265,31 @@ class CoordFlow(Dataset):
                  prob_unseeded_patch = 0.2,
                  int_aug_offset = None,
                  int_aug_expansion = None,
+                 valid_labels = None, # if this is None it will include all the available labels
+                 
                  is_preloaded = False,
-                 valid_labels = None
+                 
                  ):
         
-        
-        
+        _dum = set(dir(self))
         
         self.root_dir = Path(root_dir)
         self.samples_per_epoch = samples_per_epoch
-        self.valid_labels = valid_labels
-        
-        
         self.roi_size = roi_size
-        rotation_pad_size = math.ceil(self.roi_size*(math.sqrt(2)-1)/2)
-        padded_roi_size = roi_size + 2*rotation_pad_size
-        
-        self.zoom_range = zoom_range
         self.scale_int = scale_int
+        self.zoom_range = zoom_range
         self.prob_unseeded_patch = prob_unseeded_patch
-        
         self.int_aug_offset = int_aug_offset
         self.int_aug_expansion = int_aug_expansion
+        self.valid_labels = valid_labels
+        self.is_preloaded = is_preloaded
+        
+        self._input_names = list(set(dir(self)) - _dum) #i want the name of this fields so i can access them if necessary
+        
+        
+        
+        rotation_pad_size = math.ceil(self.roi_size*(math.sqrt(2)-1)/2)
+        padded_roi_size = roi_size + 2*rotation_pad_size
         
         transforms_random = [
                 RandomCropWithSeeds(padded_roi_size, rotation_pad_size, prob_unseeded_patch),
@@ -310,7 +314,7 @@ class CoordFlow(Dataset):
         
         
         self.hard_neg_data = None
-        self.is_preloaded = is_preloaded
+        
         self.data = self.load_data(self.root_dir, padded_roi_size, self.is_preloaded)
         self.type_ids = sorted(list(self.data.keys()))
         self.types2label = {k:(ii + 1) for ii, k in enumerate(self.type_ids)}
@@ -322,7 +326,10 @@ class CoordFlow(Dataset):
                                     for _fname, file_data in type_data.items() for ii in range(len(file_data))]
         
         assert len(self.data_indexes) > 0 #makes sure there are valid files
-        
+    
+    @property
+    def input_parameters(self):
+        return {x:getattr(self, x) for x in self._input_names}
     
     def load_data(self, root_dir, padded_roi_size, is_preloaded = True):
         data = {} 

@@ -15,7 +15,7 @@ from config_opts import flow_types, data_types, model_types
 
 from cell_localization.trainer import train_locmax, get_device, get_optimizer
 from cell_localization.flow import CoordFlow, CoordFlowMerged
-from cell_localization.models import CellDetector
+from cell_localization.models import CellDetector, CellDetectorWithClassifier
 
 import datetime
 import torch
@@ -25,6 +25,7 @@ def train(
         data_type = 'woundhealing-v2-mix',
         flow_type = None,
         model_name = 'unet-simple',
+        use_classifier = False,
         loss_type = 'l1smooth-G1.5',
         cuda_id = 0,
         log_dir = None,
@@ -101,7 +102,12 @@ def train(
     
     
     model_args = model_types[model_name]
-    model = CellDetector(**model_args, 
+
+    if use_classifier:
+        model_obj = CellDetectorWithClassifier 
+    else:
+        model_obj = CellDetector
+    model = model_obj(**model_args, 
                          unet_n_inputs = n_ch_in, 
                          unet_n_ouputs = n_ch_out,
                          loss_type = loss_type,
@@ -143,6 +149,9 @@ def train(
     hard_mining_str = '' if hard_mining_freq is None else f'+hard-neg-{hard_mining_freq}'
     lr_scheduler_name = '+' + lr_scheduler_name if lr_scheduler_name else ''
     
+    if use_classifier:
+        model_name = 'clf+' + model_name
+
     save_prefix = f'{data_type}+F{flow_type}+roi{roi_size}{hard_mining_str}_{model_name}_{loss_type}_{date_str}'
     save_prefix = f'{save_prefix}_{optimizer_name}{lr_scheduler_name}_lr{lr}_wd{weight_decay}_batch{batch_size}'
     

@@ -13,10 +13,10 @@ python -W ignore train_locmax.py \
 --data_type 'worm-eggs-adam' \
 --loss_type 'maxlikelihood' \
 --model_name 'unet-simple' \
---flow_type 'eggsonly' \
+--use_classifier True \
 --roi_size 96 \
 --lr 128e-6 \
 --num_workers 1  \
 --is_preloaded True \
 --hard_mining_freq 5 \
---n_epochs 150
+--n_epochs 120

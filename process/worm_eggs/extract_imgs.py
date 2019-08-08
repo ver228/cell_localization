@@ -6,128 +6,115 @@ Created on Tue May 14 13:15:38 2019
 @author: avelinojaver
 """
 
-import sys
-from pathlib import Path 
-dname = Path(__file__).resolve().parents[2]
-sys.path.append(str(dname))
 
-from cell_localization.models import UNet, UNetv2B
-from cell_localization.trainer import get_device
+from extract_eggs import load_model, get_device
 
+from pathlib import Path
 from collections import defaultdict
-from skimage.feature import peak_local_max
 import tqdm
 import torch
 import numpy as np
 import pandas as pd
 import cv2
 
-def normalize_softmax(xhat):
-    n_batch, n_channels, w, h = xhat.shape
-    hh = xhat.view(n_batch, n_channels, -1)
-    hh = torch.nn.functional.softmax(hh, dim = 2)
-    hmax, _ = hh.max(dim=2)
-    hh = hh/hmax.unsqueeze(2)
-    hh = hh.view(n_batch, n_channels, w, h)
-    return hh
+from torch.utils.data import Dataset, DataLoader
 
-def reshape_norm(xhat):
-    n_batch, n_outs, w, h = xhat.shape
-    n_channels = n_outs // 5
-    hh = xhat.view(n_batch, n_channels, 5, w, h)
-    hh = hh[:, :, 0]
-    hh = normalize_softmax(hh)
-    return hh
+def collate_simple(batch):
+    return tuple(map(list, zip(*batch)))
 
+
+
+class ImagesFlow(Dataset):
+    def __init__(self, root_dir, save_dir):
+        root_dir = Path(root_dir)
+        save_dir = Path(save_dir)
+        
+        fnames = [x for x in root_dir.rglob('*.png') if not x.name.startswith('.')]
+        fnames_with_keys = []
+        for fname in fnames:
+            base, _, frame = fname.stem.partition('_frame-')
+            frame = int(frame)
+            
+            dname = Path(str(fname.parent).replace(str(root_dir), str(save_dir)))
+            save_name = dname / (base + '_eggs-preds.csv')
+            
+            fnames_with_keys.append((save_name, frame, fname))
+        
+        self.root_dir = root_dir
+        self.fnames_with_keys = fnames_with_keys
+    
+    def __getitem__(self, ind):
+        save_name, frame, fname = self.fnames_with_keys[ind]
+        img = cv2.imread(str(fname), -1)
+        if img is None:
+            raise ValueError(fname)
+        
+        xin = img[None]
+        xin = xin.astype(np.float32)/255
+    
+        return xin, save_name, frame
+    
+    def __len__(self):
+        return len(self.fnames_with_keys)
+    
+    
 
 if __name__ == '__main__':
+    cuda_id = 0
+    
+    #bn = 'worm-eggs-adam+Feggsonly+roi96+hard-neg-5_unet-simple_maxlikelihood_20190717_224214_adam_lr0.000128_wd0.0_batch128'
+    #nms_threshold_rel = 0.2
+    
+    bn = 'worm-eggs-adam+Feggs+roi128+hard-neg-5_clf+unet-simple_maxlikelihood_20190803_225943_adam_lr0.000128_wd0.0_batch64'
+    nms_threshold_rel = 0.25
+    
+    
+    
+    model_path =  Path().home() / 'workspace/localization/results/locmax_detection/eggs/worm-eggs-adam/'/ bn / 'model_best.pth.tar'
     
     #where the masked files are located
-    root_dir = Path.home() / 'workspace/WormData/eggs-adam-raw/'
+    root_dir = Path.home() / 'workspace/WormData/Adam_eggs/'
     
-    #where the pre-trained model is located
-    model_path = Path().home() / 'workspace/localization/results/locmax_detection/eggs/eggsadam-roi48/eggsadam-roi48_unetv2b_hard-neg-freq10_l1smooth_20190605_165046_adam_lr0.000128_wd0.0_batch128/model_best.pth.tar'
-    
-    #model_path = Path().home() / 'workspace/localization/results/locmax_detection/eggs-int/eggs-int_unet_hard-neg-freq1_l1smooth_20190513_081902_adam_lr0.000128_batch128/model_best.pth.tar'
-    
-    
-    bn = model_path.parent.name
     #where the predictions are going to be stored
-    save_dir = Path.home() / 'workspace/localization/predictions/worm-eggs-adam/' / bn
-    
-    #%%
-    root_dir = Path(root_dir)
-    save_dir = Path(save_dir)
-    
-    img_files = root_dir.rglob('*.png')
-    
-    img_files_d = defaultdict(list)
-    for fname in img_files:
-        base, _, frame = fname.stem.partition('_frame-')
-        frame = int(frame)
-        img_files_d[base].append((frame, fname))
+    save_dir = Path.home() / 'workspace/localization/predictions/worm_eggs/' / 'Adam_eggs' / bn
     
     
-    #%%
+    gen = ImagesFlow(root_dir, save_dir)
+    loader = DataLoader(gen, batch_size = 1, num_workers = 4, collate_fn = collate_simple)
+    
+    
+    model_args = dict(nms_threshold_abs = 0.,
+                            nms_threshold_rel = nms_threshold_rel,
+                            unet_pad_mode = 'reflect')
+    
+    device = get_device(cuda_id)
+    model, epoch = load_model(model_path,**model_args)
+    model = model.to(device)
+    
+    
     
     cuda_id = 0
     device = get_device(cuda_id)
     
     
-    n_ch_in, n_ch_out  = 1, 1
-    batchnorm = '-bn' in bn
-    tanh_head = '-tanh' in bn
-    sigma_out = '-sigmoid' in bn
-    
-    if 'unetv2b' in bn:
-        model_func = UNetv2B
-    else:
-        model_func = UNet
-    
-    if 'maxlikelihood' in bn:
-        preeval_func = normalize_softmax
-    elif 'mixturemodelloss' in bn:
-        preeval_func = reshape_norm
-        n_ch_out = n_ch_out*5
-    else:
-        preeval_func = lambda x : x
-    
-    model = model_func(n_channels = n_ch_in, 
-                       n_classes = n_ch_out, 
-                       tanh_head = tanh_head,
-                       sigma_out = sigma_out,
-                       batchnorm=batchnorm)
-    
-    
-    state = torch.load(model_path, map_location = 'cpu')
-    model.load_state_dict(state['state_dict'])
-    model = model.to(device)
-    model.eval()
-    
-    for vid_name, vid_imgs in tqdm.tqdm(img_files_d.items()):
-        preds_l = []
-        for frame_number, img_path in vid_imgs:
-            img = cv2.imread(str(img_path), -1)
-            
-            xin = img[None]
-            xin = xin.astype(np.float32)/255
-            
-            with torch.no_grad():
-                xin = torch.from_numpy(xin[None])
-                xin = xin.to(device)
-                xhat = model(xin)
-            
-            xout = xhat[0].detach().cpu().numpy()
-            
-            coords_pred = peak_local_max(xout[0], min_distance = 2, threshold_abs = 0.05, threshold_rel = 0.1)
-            
-            preds_l += [('/full_data', frame_number, *cc) for cc in coords_pred]
+    data2save = defaultdict(list)
+    for X, save_names, frames in tqdm.tqdm(loader):
+
+        with torch.no_grad():
+            X = torch.from_numpy(np.stack(X))
+            X = X.to(device)
+            predictions = model(X)
         
-        preds_df = pd.DataFrame(preds_l, columns = ['group_name', 'frame_number', 'x', 'y'])
+        for save_name, frame_number, prediction in zip(save_names, frames, predictions):
+            res = [prediction[x].detach().cpu().numpy() for x in ['coordinates', 'scores_abs', 'scores_rel']]
+            res = [x[:, None] if x.ndim == 1 else x for x in res]
+            res = np.concatenate(res, axis=1)
+            data2save[save_name] += [('/full_data', frame_number, *cc) for cc in zip(*res.T)]
+    
+    for save_name, data in data2save.items():
+         preds_df = pd.DataFrame(data, columns = ['group_name', 'frame_number', 'x', 'y', 'score_abs', 'score_rel'])
+         save_name.parent.mkdir(exist_ok=True, parents=True)
+         preds_df.to_csv(save_name, index = False)
+         
+
         
-        save_dir = Path(str(img_path.parent).replace(str(root_dir), str(save_dir)))
-        save_name = save_dir / (vid_name + '_eggs-preds.csv')
-        save_name.parent.mkdir(exist_ok=True, parents=True)
-        
-        preds_df.to_csv(save_name, index = False)
-        break

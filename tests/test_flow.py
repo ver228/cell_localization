@@ -11,7 +11,7 @@ from pathlib import Path
 root_dir = Path(__file__).resolve().parents[1]
 sys.path.append(str(root_dir))
 
-from cell_localization.flow import CoordFlow, collate_test, collate_pandas
+from cell_localization.flow import CoordFlow, collate_simple
 from cell_localization.models.losses import LossWithBeliveMaps
      
 
@@ -23,15 +23,16 @@ from torch.utils.data import DataLoader
 
 import matplotlib.pylab as plt
 
-def main():
+if __name__ == '__main__':
+
     #%%
     #root_dir = '/Users/avelinojaver/OneDrive - Nexus365/bladder_cancer_tils/rois/20x/train'
     #root_dir = Path.home() / 'workspace/localization/data/histology_bladder/bladder_cancer_tils/rois/20x/train'
     #root_dir = Path.home() / 'workspace/localization/data/woundhealing/annotated/v1/no_membrane/train'
     #root_dir = Path.home() / 'workspace/localization/data/heba/data-uncorrected/train'   
     
-    #root_dir = Path.home() / 'OneDrive - Nexus365/heba/WoundHealing/data4train/mix/train'
-    root_dir =  Path.home() / 'workspace/localization/data/woundhealing/annotated/v2/mix/validation'
+    root_dir = Path.home() / 'OneDrive - Nexus365/heba/WoundHealing/data4train/mix/train'
+    #root_dir =  Path.home() / 'workspace/localization/data/woundhealing/annotated/v2/mix/validation'
     
     #root_dir = Path.home() / 'workspace/localization/test_images/'
     #loc_gauss_sigma = 2
@@ -65,7 +66,7 @@ def main():
                         batch_size = batch_size, 
                         shuffle = True, 
                         num_workers = num_workers,
-                        collate_fn = collate_test
+                        collate_fn = collate_simple
                         )
     
     
@@ -93,6 +94,6 @@ def main():
 #                axs[i+1].plot(coords[good, 0], coords[good, 1], '.r')
            
         
-if __name__ == '__main__':
-    import fire
-    fire.Fire(main)        
+#if __name__ == '__main__':
+#    import fire
+#    fire.Fire(main)        

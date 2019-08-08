@@ -15,7 +15,7 @@ sys.path.append(str(root_dir / 'scripts') )
 import numpy as np
 from cell_localization.trainer import get_device
 from cell_localization.evaluation.localmaxima import score_coordinates
-from cell_localization.models import CellDetector
+from cell_localization.models import CellDetector, CellDetectorWithClassifier
 from cell_localization.flow import CoordFlow
 
 from config_opts import flow_types, data_types, model_types
@@ -68,7 +68,7 @@ def load_model(model_path, **argkws):
     data_type, _, remain = bn.partition('+F')
     flow_type, _, remain = remain.partition('+roi')
     
-    
+    use_classifier = 'clf+' in remain
     model_name, _, remain = remain.partition('unet-')[-1].partition('_')
     model_name = 'unet-' + model_name
     
@@ -84,7 +84,12 @@ def load_model(model_path, **argkws):
     model_args = model_types[model_name]
     model_args.update(argkws)
     
-    model = CellDetector(**model_args, 
+    if use_classifier:
+        model_obj = CellDetectorWithClassifier 
+    else:
+        model_obj = CellDetector
+    
+    model = model_obj(**model_args, 
                          unet_n_inputs = n_ch_in, 
                          unet_n_ouputs = n_ch_out,
                          loss_type = loss_type,
