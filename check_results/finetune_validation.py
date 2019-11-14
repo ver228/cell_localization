@@ -13,12 +13,12 @@ sys.path.append(str(root_dir))
 sys.path.append(str(root_dir / 'scripts') )
 
 import numpy as np
-from cell_localization.trainer import get_device
+from cell_localization.utils import get_device
 from cell_localization.evaluation.localmaxima import score_coordinates
-from cell_localization.models import CellDetector, CellDetectorWithClassifier
+from cell_localization.models import get_model
 from cell_localization.flow import CoordFlow
 
-from config_opts import flow_types, data_types, model_types
+from config_opts import flow_types, data_types
 
 import torch
 from pathlib import Path
@@ -67,10 +67,7 @@ def load_model(model_path, **argkws):
     
     data_type, _, remain = bn.partition('+F')
     flow_type, _, remain = remain.partition('+roi')
-    
-    use_classifier = 'clf+' in remain
-    model_name, _, remain = remain.partition('unet-')[-1].partition('_')
-    model_name = 'unet-' + model_name
+    model_name, _, remain = remain.partition('_')[-1].partition('_')
     
     remain = remain.split('_')
     loss_type = remain[0]
@@ -81,20 +78,8 @@ def load_model(model_path, **argkws):
     n_ch_in = data_args['n_ch_in']
     n_ch_out = data_args['n_ch_out']
     
-    model_args = model_types[model_name]
-    model_args.update(argkws)
     
-    if use_classifier:
-        model_obj = CellDetectorWithClassifier 
-    else:
-        model_obj = CellDetector
-    
-    model = model_obj(**model_args, 
-                         unet_n_inputs = n_ch_in, 
-                         unet_n_ouputs = n_ch_out,
-                         loss_type = loss_type,
-                         )
-    
+    model = get_model(model_name, n_ch_in, n_ch_out, loss_type)
     model.load_state_dict(state['state_dict'])
     model.eval()
     

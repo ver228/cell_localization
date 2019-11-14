@@ -12,6 +12,7 @@ import torch.nn.functional as F
 import math
 from functools import partial
 
+
 def init_weights(net, init_type='xavier', init_gain=0.02):
     """Initialize network weights.
     Taken from https://github.com/junyanz/pytorch-CycleGAN-and-pix2pix/blob/master/models/networks.py
@@ -25,6 +26,7 @@ def init_weights(net, init_type='xavier', init_gain=0.02):
     """
     def init_func(m):  # define the initialization function
         classname = m.__class__.__name__
+        
         if hasattr(m, 'weight') and (classname.find('Conv') != -1 or classname.find('Linear') != -1):
             if init_type == 'normal':
                 nn.init.normal_(m.weight.data, 0.0, init_gain)
@@ -41,14 +43,16 @@ def init_weights(net, init_type='xavier', init_gain=0.02):
         elif classname.find('BatchNorm2d') != -1:  # BatchNorm Layer's weight is not a matrix; only normal distribution applies.
             nn.init.normal_(m.weight.data, 1.0, init_gain)
             nn.init.constant_(m.bias.data, 0.0)
-
+        
+    
+    net.apply(init_func)  # apply the initialization function <init_func>
 
 class ConvBlock(nn.Sequential):
     def __init__(self, n_in, n_out, kernel_size = 3, batchnorm = False, padding = None):
         
         if padding is None:
             padding = kernel_size//2
-        conv = nn.Conv2d(n_in, n_out, kernel_size = kernel_size, padding = padding)
+        conv = nn.Conv2d(n_in, n_out, kernel_size = kernel_size, padding = padding, bias = not batchnorm)
         act = nn.LeakyReLU(negative_slope=0.1, inplace=True)
     
         if batchnorm:
@@ -84,10 +88,12 @@ class DownSimple(nn.Module):
 class UpSimple(nn.Module):
     def __init__(self, 
                  n_filters, 
+                 scale_factor = 2,
                  interp_mode = 'nearest', 
                  **argkws):
         super().__init__()
         self.n_filters = n_filters
+        self.scale_factor = scale_factor
         
         self.interp_mode = interp_mode
         _layers = []
@@ -110,7 +116,7 @@ class UpSimple(nn.Module):
 
     def forward(self, x1, x2):
         x1 = F.interpolate(x1, 
-                           scale_factor = 2,
+                           scale_factor = self.scale_factor,
                            mode = self.interp_mode
                            )
         x2 = self.crop_to_match(x1, x2)
@@ -126,20 +132,21 @@ class UNetBase(nn.Module):
                  up_blocks,
                  output_block,
                  pad_mode = 'constant',
-                 return_feat_maps = False
+                 return_feat_maps = False,
+                 output_activation = None
                  ):
         super().__init__()
         
         
         self.initial_block = initial_block
-        self.down_blocks = nn.ModuleList(down_blocks)
+        self.down_blocks = nn.ModuleList(down_blocks) if down_blocks else down_blocks
         self.up_blocks = nn.ModuleList(up_blocks)
         self.output_block = output_block
         
         #used only if the image size does not match the corresponding unet levels
         self.pad_mode = pad_mode
         self.return_feat_maps = return_feat_maps
-        
+        self.output_activation = output_activation
         
         self.n_levels = len(down_blocks)
     
@@ -178,21 +185,31 @@ class UNetBase(nn.Module):
     
     def forward(self, x_input):
         pad_, pad_inv_ = self.calculate_padding(x_input.shape[2:], (self.n_levels + 1))
-        
         x_input = F.pad(x_input, pad_, mode = self.pad_mode)
         x, feats = self._unet(x_input)
+        
+        if self.output_activation == 'sigmoid':
+            x = torch.sigmoid(x)
         
         
         x = F.pad(x, pad_inv_)
         
         if self.return_feat_maps:
+            feat_pad_inv_ = pad_inv_
+            for ifeat in range(len(feats)-1, -1, -1):
+                feats[ifeat] = F.pad(feats[ifeat], feat_pad_inv_)
+                feat_pad_inv_ = [-(abs(x)//2) for x in feat_pad_inv_]
+                
+                
+            assert feat_pad_inv_ == [0,0,0,0]
+            
             return x, feats
         else:
             return x
     
 #%%
 def unet_constructor(n_inputs,
-                     n_ouputs, 
+                     n_outputs, 
                      DownBlock = None,
                      UpBlock = None,
                      InitialBlock = None,
@@ -202,9 +219,10 @@ def unet_constructor(n_inputs,
                      conv_per_level = 2,
                      increase_factor = 2,
                      batchnorm = False,
-                     init_type = 'xavier',
+                     init_type = None,
                      pad_mode = 'constant', 
-                     return_feat_maps = False
+                     return_feat_maps = False,
+                     output_activation = None
                      ):
     
     down_filters = []
@@ -240,16 +258,26 @@ def unet_constructor(n_inputs,
     initial_block = InitialBlock(n_inputs, initial_filter_size, batchnorm = batchnorm)
     down_blocks = [DownBlock(x, batchnorm = batchnorm) for x in down_filters]
     up_blocks = [UpBlock(x, batchnorm = batchnorm) for x in up_filters]
-    output_block = OutputBlock(initial_filter_size, n_ouputs, batchnorm = batchnorm)
+    output_block = OutputBlock(initial_filter_size, n_outputs, batchnorm = batchnorm)
     
-    model = UNetBase(initial_block, down_blocks, up_blocks, output_block, pad_mode = pad_mode, return_feat_maps = return_feat_maps)
-
+    model = UNetBase(initial_block, 
+                     down_blocks, 
+                     up_blocks, 
+                     output_block, 
+                     pad_mode = pad_mode, 
+                     return_feat_maps = return_feat_maps, 
+                     output_activation = output_activation
+                     )
+    model.n_inputs = n_inputs
+    model.n_outputs = n_outputs
+    
     #initialize model
+
     if init_type is not None:
+        print(f'Initialize network with {init_type}')
         for m in model.modules():
             init_weights(m, init_type = init_type)
 
-    
     return model
 
 

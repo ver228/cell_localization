@@ -13,254 +13,33 @@ import tables
 import random
 from pathlib import Path
 import numpy as np
-import cv2
-
+from numpy.lib import recfunctions as rfn
 import tqdm
 
-import torch
 from torch.utils.data import Dataset 
 
-
+from .transforms import ( RandomCropWithSeeds, AffineTransform, RemovePadding, RandomVerticalFlip, 
+RandomHorizontalFlip, NormalizeIntensity, RandomIntensityOffset, RandomIntensityExpansion, 
+FixDTypes, ToTensor, Compose )
+               
 def collate_simple(batch):
     return tuple(map(list, zip(*batch)))
 
-class Compose(object):
-    def __init__(self, transforms):
-        self.transforms = transforms
 
-    def __call__(self, image, target):
-        for t in self.transforms:
-            image, target = t(image, target)
-        return image, target
-
-
-class RandomCropWithSeeds(object):
-    def __init__(self, padded_roi_size = 512, padding_size = 5, prob_unseeded = 0.5):
-        self.prob_unseeded = prob_unseeded
-        self.padded_roi_size = padded_roi_size
-        self.padding_size = padding_size
-
-    def get_seed(self, img_dims, target):
-        seed = None
-        if random.random() > self.prob_unseeded:
-            _type = random.choice(np.unique(target['labels']))
-            #randomly select a type
-            coords = target['coordinates'][target['labels'] == _type]
-            
-            yl, xl = img_dims
-            x, y = coords.T
-            
-            good = (x > self.padding_size) & (x  < (xl - self.padding_size)) #[ppp-----rrrrrppp] where p is the padding and r + p is the roi_padded roi_size
-            good &= (y > self.padding_size) & (y < (yl - self.padding_size))
-            coords = coords[good]
-            
-            if len(coords) > 0:
-                seed = [int(round(x)) for x in random.choice(coords)]
-            
-        
-        return seed
-    def __call__(self, image, target):
-        
-        #### select the limits allowed for a random crop
-        xlims = (0, image.shape[1] - self.padded_roi_size - 1)
-        ylims = (0, image.shape[0] - self.padded_roi_size - 1)
-        
-        seed = self.get_seed(image.shape[:2], target)
-        if seed is not None:
-            p = self.padded_roi_size
-            x,y = seed
-            
-            seed_xlims = (x - p, x)
-            seed_xlims = list(map(int, seed_xlims))
-            
-            seed_ylims = (y - p, y)
-            seed_ylims = list(map(int, seed_ylims))
-            
-            x1 = max(xlims[0], seed_xlims[0])
-            x2 = min(xlims[1], seed_xlims[1])
-            
-            y1 = max(ylims[0], seed_ylims[0])
-            y2 = min(ylims[1], seed_ylims[1])
-            
-            
-            xlims = x1, x2
-            ylims = y1, y2
-            
-            
-        #### crop with padding in order to keep a valid rotation 
-        xl = random.randint(*xlims)
-        yl = random.randint(*ylims)
-        
-        yr = yl + self.padded_roi_size
-        xr = xl + self.padded_roi_size
-    
-        image_crop = image[yl:yr, xl:xr].copy()
-        
-        
-        xx, yy = target['coordinates'].T
-        valid = (xx > xl) & (xx < xr)
-        valid &= (yy > yl) & (yy < yr)
-        
-        #I will include labels <= 0 to indicate coordinate from hard negative mining
-        valid &= target['labels'] > 0
-        
-        coordinates = target['coordinates'][valid].copy()
-        coordinates[:, 0] -= xl
-        coordinates[:, 1] -= yl
-        
-        
-        target['coordinates'] = coordinates
-        target['labels'] = target['labels'][valid].copy()
-        
-        return image_crop, target
-
-
-class AffineTransform():
-    def __init__(self, zoom_range = (0.9, 1.1), rotation_range = (-90, 90)):
-        self.zoom_range = zoom_range
-        self.rotation_range = rotation_range
-    
-    def __call__(self, image, target):
-        theta = np.random.uniform(*self.rotation_range)
-        scaling = 1/np.random.uniform(*self.zoom_range)
-        
-        
-        cols, rows = image.shape[0], image.shape[1]
-    
-        M = cv2.getRotationMatrix2D((rows/2,cols/2), theta, scaling)
-        
-        offset_x = 0.
-        offset_y = 0.
-        translation_matrix = np.array([[1, 0, offset_x],
-                                       [0, 1, offset_y],
-                                       [0, 0, 1]])
-        
-        M = np.dot(M, translation_matrix)
-        
-        if image.ndim == 2:
-            image_rot = cv2.warpAffine(image, M, (rows, cols))
-        else:
-            image_rot = [cv2.warpAffine(image[..., n], M, (rows, cols)) for n in range(image.shape[-1])] 
-            image_rot = np.stack(image_rot, axis=2)
-            
-        coords = target['coordinates'].T
-        coords_rot = np.dot(M[:2, :2], coords)  +  M[:, -1][:, None]
-        coords_rot = np.round(coords_rot).T
-        
-        target['coordinates'] = coords_rot
-        
-        
-        return image_rot, target
-
-class RemovePadding():
-    def __init__(self, pad_size):
-        self.pad_size = pad_size
-    
-    def __call__(self, image, target):
-        ##### remove padding
-        img_out = image[self.pad_size:-self.pad_size, self.pad_size:-self.pad_size].copy()
-        coord_out = target['coordinates'] - self.pad_size
-        
-        valid = (coord_out[:, 0] >= 0) & (coord_out[:, 0] < img_out.shape[1])
-        valid &= (coord_out[:, 1] >= 0) & (coord_out[:, 1] < img_out.shape[0])
-        coord_out = coord_out[valid].copy()
-        
-        target['coordinates'] = coord_out
-        target['labels'] = target['labels'][valid].copy()
-        
-        return img_out, target
-    
-class RandomVerticalFlip(object):
-    def __init__(self, prob = 0.5):
-        self.prob = prob
-
-    def __call__(self, image, target):
-        if random.random() < self.prob:
-            image = image[::-1]
-            
-            coordinates = target['coordinates'].copy()
-            coordinates[:, 1] = (image.shape[0] - 1 - coordinates[:, 1])
-            target['coordinates'] = coordinates
-        
-        return image, target
-    
-class RandomHorizontalFlip(object):
-    def __init__(self, prob = 0.5):
-        self.prob = prob
-    
-    def __call__(self, image, target):
-        if random.random() < self.prob:
-            image = image[:, ::-1]
-            
-            coordinates = target['coordinates'].copy()
-            coordinates[:, 0] = (image.shape[1] - 1 - coordinates[:, 0])
-            target['coordinates'] = coordinates
-        
-        return image, target
-
-class NormalizeIntensity(object):
-    def __init__(self, scale = (0, 255)):
-        self.scale = scale
-    
-    def __call__(self, image, target):
-        
-        image = (image.astype(np.float32) - self.scale[0])/(self.scale[1] - self.scale[0])
-        
-        return image, target
-        
-
-class RandomIntensityOffset(object):
-    def __init__(self, offset_range = (-0.2, 0.2)):
-        self.offset_range = offset_range
-    
-    def __call__(self, image, target):
-        if self.offset_range is not None and random.random() > 0.5:
-            offset = random.uniform(*self.offset_range)
-            image = image + offset
-            
-        return image, target
-
-
-class RandomIntensityExpansion(object):
-    def __init__(self, expansion_range = (0.7, 1.3)):
-        self.expansion_range = expansion_range
-    
-    def __call__(self, image, target):
-        if self.expansion_range is not None and random.random() > 0.5:
-            factor = random.uniform(*self.expansion_range)
-            image = image*factor
-            
-        return image, target    
-
-class FixDTypes(object):
-    def __call__(self, image, target):
-        if image.ndim == 3:
-            image = np.rollaxis(image, 2, 0).copy()
-        else:
-            image = image[None]
-        
-        image = image.astype(np.float32)
-        target['coordinates'] = target['coordinates'].astype(np.int)
-        target['labels'] = target['labels'].astype(np.int)
-        
-        return image, target
-    
-class ToTensor(object):
-    def __call__(self, image, target):
-        
-        image = torch.from_numpy(image).float()
-        target['coordinates'] = torch.from_numpy(target['coordinates']).long()
-        target['labels'] = torch.from_numpy(target['labels']).long()
-        
-        return image, target
 #%%
 #@add_input_params
 class CoordFlow(Dataset):
     def __init__(self, 
-                 root_dir,
+                 data_src,
+                 folds2include = None,
+                 
+                 num_folds = 5,
+                 
                  samples_per_epoch = 2000,
                  roi_size = 96,
                  scale_int = (0, 255),
+                 norm_mean = 0.,
+                 norm_sd = 1.,
                  zoom_range = (0.90, 1.1),
                  prob_unseeded_patch = 0.2,
                  int_aug_offset = None,
@@ -269,20 +48,34 @@ class CoordFlow(Dataset):
                  
                  is_preloaded = False,
                  
+                 max_input_size = 2048 #if any image is larger than this it will be splitted (only working with folds)
                  ):
         
         _dum = set(dir(self))
         
-        self.root_dir = Path(root_dir)
+        
+        self.data_src = Path(data_src)
+        if not self.data_src.exists():
+            raise ValueError(f'`data_src` : `{data_src}` does not exists.')
+        
+        
+        self.folds2include  = folds2include
+        self.num_folds = num_folds
+        
         self.samples_per_epoch = samples_per_epoch
         self.roi_size = roi_size
         self.scale_int = scale_int
+        
+        self.norm_mean = norm_mean
+        self.norm_sd = norm_sd
+        
         self.zoom_range = zoom_range
         self.prob_unseeded_patch = prob_unseeded_patch
         self.int_aug_offset = int_aug_offset
         self.int_aug_expansion = int_aug_expansion
         self.valid_labels = valid_labels
         self.is_preloaded = is_preloaded
+        self.max_input_size = max_input_size
         
         self._input_names = list(set(dir(self)) - _dum) #i want the name of this fields so i can access them if necessary
         
@@ -297,7 +90,7 @@ class CoordFlow(Dataset):
                 RemovePadding(rotation_pad_size),
                 RandomVerticalFlip(),
                 RandomHorizontalFlip(),
-                NormalizeIntensity(scale_int),
+                NormalizeIntensity(scale_int, norm_mean, norm_sd),
                 RandomIntensityOffset(int_aug_offset),
                 RandomIntensityExpansion(int_aug_expansion),
                 FixDTypes()
@@ -315,7 +108,14 @@ class CoordFlow(Dataset):
         
         self.hard_neg_data = None
         
-        self.data = self.load_data(self.root_dir, padded_roi_size, self.is_preloaded)
+        if self.data_src.is_dir():
+            assert self.folds2include is None
+            self.data = self.load_data_from_dir(self.data_src, padded_roi_size, self.is_preloaded)
+        else:
+            assert self.is_preloaded
+            self.data = self.load_data_from_file(self.data_src)
+         
+        
         self.type_ids = sorted(list(self.data.keys()))
         self.types2label = {k:(ii + 1) for ii, k in enumerate(self.type_ids)}
         
@@ -331,12 +131,80 @@ class CoordFlow(Dataset):
     def input_parameters(self):
         return {x:getattr(self, x) for x in self._input_names}
     
-    def load_data(self, root_dir, padded_roi_size, is_preloaded = True):
+    def load_data_from_file(self, src_file):
+        
+        def is_in_fold(_id, fold):
+            return ( (_id - 1) % self.num_folds ) == (fold - 1)
+        
+        if self.folds2include is None:
+            _is_valid_fold = lambda x : True
+        elif isinstance(self.folds2include, (int, float)):
+            assert self.folds2include >= 1 and self.folds2include <= self.num_folds
+            _is_valid_fold = lambda x : is_in_fold(x, self.folds2include)
+        else:
+            assert all([x >= 1 and x <= self.num_folds for x in self.folds2include])
+            _is_valid_fold = lambda x : any([is_in_fold(x, fold) for fold in self.folds2include])
+        
+            
+        
+        with tables.File(str(src_file), 'r') as fid:
+            images = fid.get_node('/images')
+             
+            centroids = self._read_coords(fid, _node = '/localizations')
+            
+            type_ids = np.unique(centroids['type_id'])
+            
+            data = {tid : {} for tid in type_ids}
+            
+            keys = centroids['file_id']
+            centroids_by_file =  {key: centroids[keys == key] for key in np.unique(keys)}
+            for file_id, dat in centroids_by_file.items():
+                if not _is_valid_fold(file_id):
+                    continue
+                
+                
+                img = images[file_id - 1]
+                
+                if np.all([x <= self.max_input_size for x in img.shape[:-1]]):
+                
+                    for tid in np.unique(dat['type_id']):
+                        data[tid][file_id] = [(img, dat)]
+                else:
+                    
+                    inds = []
+                    for ss in img.shape[:-1]:
+                        n_split = int(np.ceil(ss/self.max_input_size)) + 1
+                        ind = np.linspace(0, ss, n_split)[1:-1].round().astype(np.int)
+                        inds.append([0, *ind.tolist(), ss])
+                    
+                    inds_i, inds_j = inds
+                    for i1, i2 in zip(inds_i[:-1], inds_i[1:]):
+                        for j1, j2 in zip(inds_j[:-1], inds_j[1:]):
+                            roi = img[i1:i2, j1:j2]
+                            
+                            valid = (dat['cy'] >=  i1) & (dat['cy'] <  i2) & (dat['cx'] >=  j1) & (dat['cx'] <  j2)
+                            roi_dat = dat[valid].copy()
+                            
+                            roi_dat['cy'] -= i1
+                            roi_dat['cx'] -= j1
+                            
+                            x2add = (roi, roi_dat)
+                            for tid in np.unique(roi_dat['type_id']):
+                                if not file_id in data[tid]:
+                                    data[tid][file_id] = []
+                                data[tid][file_id].append(x2add)
+                                
+                    
+        return data
+                
+            
+    
+    def load_data_from_dir(self, root_dir, padded_roi_size, is_preloaded = True):
         data = {} 
         fnames = [x for x in root_dir.rglob('*.hdf5') if not x.name.startswith('.')]
         
         header = 'Preloading Data' if is_preloaded else 'Reading Data'
-        for fname in tqdm.tqdm(fnames, header):
+        for ifname, fname in enumerate(tqdm.tqdm(fnames, header)):
             with tables.File(str(fname), 'r') as fid:
                 img = fid.get_node('/img')
                 img_shape = img.shape[:2]
@@ -371,8 +239,12 @@ class CoordFlow(Dataset):
         
         return data
     
-    def _read_coords(self, fid):
-        rec = fid.get_node('/coords')[:]
+    def _read_coords(self, fid, _node = '/coords'):
+        rec = fid.get_node(_node)[:]
+        if not 'type_id' in rec.dtype.names:
+            type_id = np.ones(len(rec), dtype = np.int32)
+            rec = rfn.append_fields(rec, 'type_id', type_id)
+        
         if self.valid_labels is not None:
             valid = np.isin(rec['type_id'], self.valid_labels)
             rec = rec[valid]
@@ -438,94 +310,29 @@ class CoordFlow(Dataset):
         
         return img, target
 
-#%%
-class CoordFlowMerged(CoordFlow):
-    def __init__(self, *args, **argkws):
-        super().__init__(*args, **argkws)
-        
-        #I am duplicating the indexes so i have a good way to iterate over on the validation
-        self.data_indexes = self.data_indexes + self.data_indexes
-        
-    
-    def load_data(self, root_dir, padded_roi_size, is_preloaded = True):
-        data = {} 
-        fnames = [x for x in root_dir.rglob('*.hdf5') if not x.name.startswith('.')]
-        
-        header = 'Preloading Data' if is_preloaded else 'Reading Data'
-        for fname in tqdm.tqdm(fnames, header):
-            with tables.File(str(fname), 'r') as fid:
-                img1 = fid.get_node('/img1')[:]
-                img2 = fid.get_node('/img2')[:]
-                rec = self._read_coords(fid)
-                
-                
-                x2add = (img1[:], img2[:], rec)
-                
-            type_ids = set(np.unique(rec['type_id']).tolist())
-            
-            k = fname.parent.name
-            for tid in type_ids:
-                if tid not in data:
-                    data[tid] = {}
-                if k not in data[tid]:
-                    data[tid][k] = []
-                
-                data[tid][k].append(x2add)
-                
-        return data
-    
-    def read_key(self, _type, _group, _img_id, is_full = False):
-        input_ = self.data[_type][_group][_img_id]
-        img1, img2, coords_rec = input_
-        
-        labels = np.array([self.types2label[x] for x in coords_rec['type_id']])
-        target = dict(
-                labels = labels,
-                coordinates = np.array((coords_rec['cx'], coords_rec['cy'])).T
-                )
-        
-        img1 = img1/img1.max()
-        img2 = img2/img2.max()
-            
-        if not is_full:
-            #I am randomly merging this image. This might bring a bit of problems 
-            #on the validation, but for the moment this should work...
-            
-            if random.random() < 0.5:
-                p = np.random.uniform(0., 1.)
-                img = p*img1 + (1-p)*img2
-            else:
-                img = img1 if random.random() < 0.5 else img2 
-            
-            return img, target
-        else:
-            return img1, img2, target
-    
-    
-    
-    def read_full(self, ind):
-        (_type, _group, _img_id) = self.data_indexes[ind]
-        img1, img2, target = self.read_key(_type, _group, _img_id, is_full = True)
-        
-        #here i am expecting the indexes to be duplicated. I will assing the first half to one image while the second to the other
-        N = len(self.data_indexes) // 2
-        img = img1 if (ind // N) == 0 else img2
-        
-        img, target = self.transforms_full(img, target)
-        
-        return img, target
-    
-    
+
     
 #%%
 if __name__ == '__main__':
     import matplotlib.pylab as plt
+
+    src_file = ''
     
-    root_dir = Path.home() / 'workspace/localization/data/histology_bladder/bladder_cancer_tils/lymphocytes/40x/validation'
+    #root_dir = Path.home() / 'workspace/localization/data/histology_bladder/bladder_cancer_tils/all_lymphocytes/20x/validation/'
     #root_dir = Path.home() / 'workspace/localization/data/woundhealing/annotated/splitted/F0.5x/'
+    #root_dir = '/Users/avelinojaver/Desktop/nuclei_datasets/reformated/40x_MoNuSeg_training.hdf5'
+    #root_dir = '/Users/avelinojaver/Desktop/nuclei_datasets/reformated/40x_MoNuSeg_training.hdf5'
+    
+    #root_dir = '/Users/avelinojaver/Desktop/nuclei_datasets/reformated/40x_TMA_lymphocytes_2Bfirst104868.hdf5'
+    #root_dir = '/Users/avelinojaver/Desktop/nuclei_datasets/reformated/20x-resized_TMA_lymphocytes_2Bfirst104868.hdf5'
+    #root_dir = '/Users/avelinojaver/Desktop/nuclei_datasets/reformated/40x_andrewjanowczyk_lymphocytes.hdf5'
+    #root_dir = Path.home() / 'workspace/localization/data/histology_data/40x_andrewjanowczyk_lymphocytes.hdf5'
+    
+    #root_dir =  '/Users/avelinojaver/Desktop/nuclei_datasets/separated_files/BBBC038_Kaggle_2018_Data_Science_Bowl/fluorescence/train/'
+    root_dir =  '/Users/avelinojaver/Desktop/nuclei_datasets/separated_files/BBBC038_Kaggle_2018_Data_Science_Bowl/fluorescence/test/'
     
     flow_args = dict(
-                roi_size = 96,
+                roi_size = 64,
                 #scale_int = (0, 4095),
                 scale_int = (0, 255.),
                 #scale_int = (0, 1.),
@@ -533,36 +340,37 @@ if __name__ == '__main__':
               
                 zoom_range = (0.90, 1.1),
                 
-                int_aug_offset = (-0.2, 0.2),
-                int_aug_expansion = (0.5, 1.3),
-                valid_labels = [1]
+                int_aug_offset = None,#(-0.2, 0.2),
+                int_aug_expansion = None, #(0.5, 1.3),
+                valid_labels = [1],
+                is_preloaded = True,
+                
+                #folds2include = 1#[1,2,3,4]
                 )
 
 
-    #gen = CoordFlowMerged(root_dir, **flow_args)
     gen = CoordFlow(root_dir, **flow_args)
     
-
+#%%
     col_dict = {1 : 'r', 2 : 'g'}
-    for _ in tqdm.tqdm(range(1000)):
+    for _ in tqdm.tqdm(range(10)):
         X, target = gen[0]
-        
+        #%%
         #X = X.numpy()
         if X.shape[0] == 3:
-            x = X[::-1]
+            #x = X[::-1]
+            x = X
             x = np.rollaxis(x, 0, 3)
         else:
             x = X[0]
         
-        
-        
         coords = target['coordinates']
         labels = target['labels']
         assert (labels > 0).all()
-        
-#        plt.figure()
-#        plt.imshow(x,  cmap='gray', vmin = 0.0, vmax = 1.0)
-#        for lab in np.unique(labels):
-#            good = labels == lab
-#            plt.plot(coords[good, 0], coords[good, 1], 'o', color = col_dict[lab])
+        #%%
+        plt.figure()
+        plt.imshow(x,  cmap='gray', vmin = 0.0, vmax = 1.0)
+        for lab in np.unique(labels):
+            good = labels == lab
+            plt.plot(coords[good, 0], coords[good, 1], 'o', color = col_dict[lab])
         

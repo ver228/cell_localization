@@ -9,8 +9,8 @@ import torch
 from torch import nn
 import torch.nn.functional as F
 
+
 from .losses import MaximumLikelihoodLoss, LossWithBeliveMaps
-from .unet import unet_constructor, unet_attention, unet_squeeze_excitation, unet_input_halved
 
 def normalize_softmax(xhat):
     n_batch, n_channels, w, h = xhat.shape
@@ -21,19 +21,25 @@ def normalize_softmax(xhat):
 
 def get_loss(loss_type):
     
-    loss_t, _, gauss_sigma = loss_type.partition('-G')
-    loss_t, _, is_regularized = loss_t.partition('-')
-    is_regularized = is_regularized == 'reg'
-    
-    
     criterion = None
-    if gauss_sigma:
-        gauss_sigma = float(gauss_sigma)
-    
-    if loss_t == 'maxlikelihood':
+    if loss_type == 'maxlikelihood':
         criterion = MaximumLikelihoodLoss()
         preevaluation = normalize_softmax
     else:
+        parts = loss_type.split('-')
+        loss_t = parts[0]
+        
+        gauss_sigma = [x for x in parts if x[0] == 'G'] #this must exists
+        gauss_sigma = float(gauss_sigma[0][1:])
+         
+        increase_factor = [x for x in parts if x[0] == 'F'] #this one is optional
+        increase_factor = float(increase_factor[0][1:]) if increase_factor else 1.
+        
+        
+        is_regularized = [x for x in parts if x == 'reg']
+        is_regularized = len(is_regularized) > 0
+        
+        
         preevaluation = lambda x : x
         if loss_t == 'l1smooth':
             target_loss = nn.SmoothL1Loss()
@@ -44,29 +50,14 @@ def get_loss(loss_type):
             
         criterion = LossWithBeliveMaps(target_loss, 
                                        gauss_sigma = gauss_sigma, 
-                                       is_regularized = is_regularized
+                                       is_regularized = is_regularized,
+                                       increase_factor = increase_factor
                                        )
     
     if criterion is None:
         raise ValueError(loss_type)
-    
     return criterion, preevaluation
 
-def get_unet_model(model_type, n_inputs, n_ouputs,  **argkws):
-    
-    if model_type == 'unet-simple':
-        constructor = unet_constructor
-    elif model_type == 'unet-attention':
-        constructor = unet_attention 
-    elif model_type == 'unet-SE':
-        constructor = unet_squeeze_excitation
-    elif model_type == 'unet-input-halved':
-        constructor = unet_input_halved
-    else:
-        raise ValueError(f'Not implemented {model_type}')
-    
-    model = constructor(n_inputs, n_ouputs, **argkws)
-    return model
 
 class BeliveMapsNMS(nn.Module):
     def __init__(self, threshold_abs = 0.0, threshold_rel = None, min_distance = 3):
@@ -107,17 +98,7 @@ class BeliveMapsNMS(nn.Module):
 
 class CellDetector(nn.Module):
     def __init__(self, 
-                 unet_type = 'unet-simple',
-                 unet_n_inputs = 1,
-                 unet_n_ouputs = 1,
-                 unet_initial_filter_size = 48, 
-                 unet_levels = 4, 
-                 unet_conv_per_level = 2,
-                 unet_increase_factor = 2,
-                 unet_batchnorm = False,
-                 unet_init_type = 'xavier',
-                 unet_pad_mode = 'constant',
-                 
+                 mapping_network,
                  loss_type = 'l2-G1.5',
                  
                  nms_threshold_abs = 0.2,
@@ -132,17 +113,9 @@ class CellDetector(nn.Module):
         
         _dum = set(dir(self))
         
-        self.unet_type = unet_type
-        self.unet_n_inputs = unet_n_inputs
-        self.unet_n_ouputs = unet_n_ouputs
-        self.unet_initial_filter_size = unet_initial_filter_size
-        self.unet_levels = unet_levels
-        self.unet_conv_per_level = unet_conv_per_level
-        self.unet_increase_factor = unet_increase_factor
-        self.unet_batchnorm = unet_batchnorm
-        self.unet_init_type = unet_init_type
-        self.unet_pad_mode = unet_pad_mode
+        self.mapping_network_name = mapping_network.__name__
         
+        self.n_classes = mapping_network.n_outputs
         self.nms_threshold_abs = nms_threshold_abs
         self.nms_threshold_rel = nms_threshold_rel
         self.nms_min_distance = nms_min_distance
@@ -151,19 +124,7 @@ class CellDetector(nn.Module):
         
         self._input_names = list(set(dir(self)) - _dum) #i want the name of this fields so i can access them if necessary
         
-        
-        self.n_classes = unet_n_ouputs
-        self.mapping_network = get_unet_model(model_type = unet_type, 
-                                    n_inputs = unet_n_inputs,
-                                    n_ouputs = unet_n_ouputs,
-                                    initial_filter_size = unet_initial_filter_size, 
-                                    levels = unet_levels, 
-                                    conv_per_level = unet_conv_per_level,
-                                    increase_factor = unet_increase_factor,
-                                    batchnorm = unet_batchnorm,
-                                    init_type = unet_init_type,
-                                    pad_mode = unet_pad_mode
-                                   )
+        self.mapping_network = mapping_network
         
         
         self.criterion, self.preevaluation = get_loss(loss_type)
@@ -179,14 +140,12 @@ class CellDetector(nn.Module):
     
     def forward(self, x, targets = None):
         xhat = self.mapping_network(x)
-         
         outputs = []
         if self.training or (targets is not None):
             loss = dict(
                 loss_loc = self.criterion(xhat, targets)
                 )
             outputs.append(loss)
-        
         
         if not self.training:
             result = []

@@ -11,8 +11,9 @@ from pathlib import Path
 root_dir = Path(__file__).resolve().parents[1]
 sys.path.append(str(root_dir))
 
+import numpy as np
 from cell_localization.flow import CoordFlow, collate_simple
-from cell_localization.models.losses import LossWithBeliveMaps
+#from cell_localization.models.losses import LossWithBeliveMaps
      
 
 import tqdm
@@ -31,7 +32,7 @@ if __name__ == '__main__':
     #root_dir = Path.home() / 'workspace/localization/data/woundhealing/annotated/v1/no_membrane/train'
     #root_dir = Path.home() / 'workspace/localization/data/heba/data-uncorrected/train'   
     
-    root_dir = Path.home() / 'OneDrive - Nexus365/heba/WoundHealing/data4train/mix/train'
+    #root_dir = Path.home() / 'OneDrive - Nexus365/heba/WoundHealing/data4train/mix/train'
     #root_dir =  Path.home() / 'workspace/localization/data/woundhealing/annotated/v2/mix/validation'
     
     #root_dir = Path.home() / 'workspace/localization/test_images/'
@@ -44,13 +45,15 @@ if __name__ == '__main__':
     #root_dir = Path.home() / 'workspace/localization/data/worm_eggs_adam/validation'
     #root_dir = Path.home() / 'workspace/localization/data/worm_eggs_adam_refined/validation'
     
+    root_dir =  Path.home() / 'workspace/localization/data/CRCHistoPhenotypes/detection/'
+    
     num_workers = 4
     batch_size = 128#512
     gauss_sigma = 1.5
     
     flow_args = dict(
                 roi_size = 48,
-                scale_int = (0, 4095),
+                scale_int = (0, 255),
                 prob_unseeded_patch = 0.0,
               
                 zoom_range = (0.97, 1.03),
@@ -62,37 +65,49 @@ if __name__ == '__main__':
     
     gen = CoordFlow(root_dir, **flow_args)
     
-    loader = DataLoader(gen,
-                        batch_size = batch_size, 
-                        shuffle = True, 
-                        num_workers = num_workers,
-                        collate_fn = collate_simple
-                        )
-    
-    
-    maps_getter = LossWithBeliveMaps(gauss_sigma = gauss_sigma)
-    for X in tqdm.tqdm(loader):
-        pass
-    
+    for x, target in gen:
+
+  
+        if target['coordinates'].size == 0:
+            raise
+        
+        #plt.plot(coords[:, 0], coords[:, 1], 'or')
+            
+#            
+
+#    loader = DataLoader(gen,
+#                        batch_size = batch_size, 
+#                        shuffle = True, 
+#                        num_workers = num_workers,
+#                        collate_fn = collate_simple
+#                        )
+#    
+#    
+#    maps_getter = LossWithBeliveMaps(gauss_sigma = gauss_sigma)
+#    for X in tqdm.tqdm(loader):
+#        pass
+    #%%
 #    for X, targets in tqdm.tqdm(loader):
-#        belive_map = maps_getter.targets2belivemaps(targets, X.shape)
-#        for x, maps, target in zip(X, belive_map, targets):
-#            fig, axs = plt.subplots(1, 1 + maps.shape[0])
+#        for x, target in zip(X, targets):
+#            fig, axs = plt.subplots(1, 1)
 #            
-#            xr = x[0].detach().numpy()
+#            if x.shape[0] == 3:
+#                x = np.rollaxis(x, 0, 3)
+#            else:
+#                x = x[0]
+#            axs.imshow(x, cmap = 'gray')
 #            
-#            for ax in axs:
-#                ax.imshow(xr, cmap = 'gray')
+#            coords = target['coordinates']
+#            labels = target['labels']
 #            
-#            coords = target['coordinates'].detach().numpy()
-#            labels = target['labels'].detach().numpy()
-#            for i, m in enumerate(maps):
-#                m = m.detach().numpy()
-#                axs[i+1].imshow(m, cmap='inferno', alpha=0.5)
-#                
-#                good = labels == i+1
-#                axs[i+1].plot(coords[good, 0], coords[good, 1], '.r')
-           
+#            if coords.size == 0:
+#                raise
+#            
+#            plt.plot(coords[:, 0], coords[:, 1], 'or')
+#            
+#            
+#        
+#        break
         
 #if __name__ == '__main__':
 #    import fire

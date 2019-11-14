@@ -38,7 +38,7 @@ def cv2_peak_local_max(img, threshold_relative, threshold_abs):
     
     return coords
 
-def score_coordinates(prediction, target, max_dist = 10):
+def score_coordinates(prediction, target, max_dist = 10, assigment = 'hungarian'):
     if prediction.size == 0:
         return 0, 0, len(target), None, None
     
@@ -47,10 +47,29 @@ def score_coordinates(prediction, target, max_dist = 10):
     
     cost_matrix = cdist(prediction, target)
     cost_matrix[cost_matrix > max_dist] = max_dist
-    pred_ind, true_ind = linear_sum_assignment(cost_matrix)
     
-    good = cost_matrix[pred_ind, true_ind] < max_dist
-    pred_ind, true_ind = pred_ind[good], true_ind[good]
+    if assigment == 'hungarian':
+        pred_ind, true_ind = linear_sum_assignment(cost_matrix)
+        good = cost_matrix[pred_ind, true_ind] < max_dist
+        pred_ind, true_ind = pred_ind[good], true_ind[good]
+        
+    elif assigment == 'greedy':
+        #%%
+        pred_ind = []
+        true_ind = []
+        for p_ind, cost_rows in enumerate(cost_matrix):
+            t_ind = np.argmin(cost_rows)
+            val = cost_rows[t_ind]
+            if val <  max_dist and not (t_ind in true_ind):
+                true_ind.append(t_ind)
+                pred_ind.append(p_ind)
+        
+        pred_ind = np.array(pred_ind)
+        true_ind = np.array(true_ind)
+    else:
+        raise(f'Not implemented {assigment}')
+    
+    
     
     TP = pred_ind.size
     FP = prediction.shape[0] - pred_ind.size

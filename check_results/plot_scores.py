@@ -11,12 +11,17 @@ import pickle
 
 if __name__ == '__main__':
     root_dir = Path.home() / 'workspace/localization/results/locmax_detection/woundhealing-v2/woundhealing-v2-mix/different_losses/'
-    root_dir = Path.home() / 'workspace/localization/results/locmax_detection/woundhealing-v2/woundhealing-v2-nuclei/different_losses/'
-    root_dir = Path.home() / 'workspace/localization/results/locmax_detection/eosinophils/20x/eosinophils-20x/different_losses'
-    root_dir = Path.home() / 'workspace/localization/results/locmax_detection/eosinophils/20x/eosinophils-20x/different_models'
-    root_dir = Path.home() / 'workspace/localization/results/locmax_detection/lymphocytes/20x/'
+    root_dir = Path.home() / 'workspace/localization/results/locmax_detection/woundhealing-v2/woundhealing-v2-mix/different_losses_complete/'
+    #root_dir = Path.home() / 'workspace/localization/results/locmax_detection/woundhealing-v2/woundhealing-v2-nuclei/different_losses/'
+    #root_dir = Path.home() / 'workspace/localization/results/locmax_detection/woundhealing-F0.5-merged/'
+    
+    #root_dir = Path.home() / 'workspace/localization/results/locmax_detection/eosinophils/20x/eosinophils-20x/different_losses'
+    #root_dir = Path.home() / 'workspace/localization/results/locmax_detection/eosinophils/20x/eosinophils-20x/different_models'
+    #root_dir = Path.home() / 'workspace/localization/results/locmax_detection/lymphocytes/20x/'
+    #root_dir = Path.home() / 'workspace/localization/results/locmax_detection/lymphocytes_bad_downsamping/20x/'
     #root_dir = Path.home() / 'workspace/localization/results/locmax_detection/lymphocytes/40x/'
-    root_dir = Path.home() / 'workspace/localization/results/locmax_detection/eggs/worm-eggs-adam'
+    #root_dir = Path.home() / 'workspace/localization/results/locmax_detection/eggs/worm-eggs-adam'
+    #root_dir = Path.home() / 'workspace/localization/results/locmax_detection/eggs/worm-eggs-adam-masks'
     
     score_file = root_dir / 'scores.p'
     

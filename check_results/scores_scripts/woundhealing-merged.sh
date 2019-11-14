@@ -7,7 +7,7 @@ echo "********"
 source activate pytorch-1.0
 
 python $HOME/GitLab/cell_localization/check_results/finetune_validation.py \
---data_type 'all-lymphocytes-20x' \
---flow_type 'lymphocytes' \
---root_model_dir  $HOME'/workspace/localization/results/locmax_detection/lymphocytes/20x/' \
+--data_type 'woundhealing-v2-mix' \
+--flow_type 'woundhealing' \
+--root_model_dir  $HOME'/workspace/localization/results/locmax_detection/woundhealing-F0.5-merged/' \
 --checkpoint_name 'model_best.pth.tar'

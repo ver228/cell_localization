@@ -9,10 +9,10 @@ import torch
 from torch import nn
 import torch.nn.functional as F
 
-from .cell_detector import BeliveMapsNMS, get_unet_model, get_loss
+from .cell_detector import BeliveMapsNMS, get_loss
 from .unet import ConvBlock
 
-class SimpleClassifier(nn.Sequential):
+class SimpleBgndClassifier(nn.Sequential):
     def __init__(self, n_inputs, n_classes, dropout_p = 0.2):
         super().__init__()
         
@@ -41,16 +41,7 @@ class SimpleClassifier(nn.Sequential):
 
 class CellDetectorWithClassifier(nn.Module):
     def __init__(self, 
-                 unet_type = 'unet-simple',
-                 unet_n_inputs = 1,
-                 unet_n_ouputs = 1,
-                 unet_initial_filter_size = 48, 
-                 unet_levels = 4, 
-                 unet_conv_per_level = 2,
-                 unet_increase_factor = 2,
-                 unet_batchnorm = False,
-                 unet_init_type = 'xavier',
-                 unet_pad_mode = 'constant',
+                 mapping_network,
                  
                  loss_type = 'l2-G1.5',
                  
@@ -66,16 +57,9 @@ class CellDetectorWithClassifier(nn.Module):
         
         _dum = set(dir(self))
         
-        self.unet_type = unet_type
-        self.unet_n_inputs = unet_n_inputs
-        self.unet_n_ouputs = unet_n_ouputs
-        self.unet_initial_filter_size = unet_initial_filter_size
-        self.unet_levels = unet_levels
-        self.unet_conv_per_level = unet_conv_per_level
-        self.unet_increase_factor = unet_increase_factor
-        self.unet_batchnorm = unet_batchnorm
-        self.unet_init_type = unet_init_type
-        self.unet_pad_mode = unet_pad_mode
+        self.n_classes = mapping_network.n_outputs
+        self.mapping_network_name = mapping_network.__name__
+        
         
         self.nms_threshold_abs = nms_threshold_abs
         self.nms_threshold_rel = nms_threshold_rel
@@ -85,21 +69,7 @@ class CellDetectorWithClassifier(nn.Module):
         
         self._input_names = list(set(dir(self)) - _dum) #i want the name of this fields so i can access them if necessary
         
-        
-        self.n_classes = unet_n_ouputs
-        self.mapping_network = get_unet_model(model_type = unet_type, 
-                                    n_inputs = unet_n_inputs,
-                                    n_ouputs = unet_n_ouputs,
-                                    initial_filter_size = unet_initial_filter_size, 
-                                    levels = unet_levels, 
-                                    conv_per_level = unet_conv_per_level,
-                                    increase_factor = unet_increase_factor,
-                                    batchnorm = unet_batchnorm,
-                                    init_type = unet_init_type,
-                                    pad_mode = unet_pad_mode,
-                                    return_feat_maps = True
-                                   )
-        
+        self.mapping_network = mapping_network
         
         self.criterion_loc, self.preevaluation = get_loss(loss_type)
         self.nms = BeliveMapsNMS(nms_threshold_abs, nms_threshold_rel, nms_min_distance)
@@ -107,7 +77,7 @@ class CellDetectorWithClassifier(nn.Module):
         self.return_belive_maps = return_belive_maps
         
         n_filters_clf = self.mapping_network.down_blocks[-1].n_filters[-1]
-        self.clf_head = SimpleClassifier(n_filters_clf, 2)
+        self.clf_head = SimpleBgndClassifier(n_filters_clf, 2)
         self.criterion_clf = nn.CrossEntropyLoss()
     
     @property
@@ -129,6 +99,7 @@ class CellDetectorWithClassifier(nn.Module):
             valid_loc_targets = [t for t in targets if t['labels'].shape[0]>0]
             clf_target = valid_.long()
             
+            
             loss = dict(
                 loss_loc = self.criterion_loc(valid_loc_xhat, valid_loc_targets),
                 loss_clf = self.criterion_clf(clf_scores, clf_target)
@@ -141,7 +112,7 @@ class CellDetectorWithClassifier(nn.Module):
             #I want to get a map to indicate if there is an egg or not
             feats = features[0].permute((0, 2, 3, 1))
             n_batch, clf_h, clf_w, clf_n_filts = feats.shape
-            feats = feats.view(-1, clf_n_filts, 1, 1)
+            feats = feats.contiguous().view(-1, clf_n_filts, 1, 1)
             clf_scores = self.clf_head(feats)
             #scores, has_cells = clf_scores.max(dim=1)
             clf_scores = F.softmax(clf_scores, dim = 1)            
@@ -149,10 +120,14 @@ class CellDetectorWithClassifier(nn.Module):
             
             
             clf_scores = F.interpolate(clf_scores, size = xhat.shape[-2:], mode = 'bilinear', align_corners=False)
-            xhat_v = self.preevaluation(xhat)
-            xhat_v[clf_scores< 0.5] = 0
             
-            outs = self.nms(xhat_v)
+            xhat = self.preevaluation(xhat)
+            
+            #set to zero the probability 
+            bad = clf_scores< 0.5
+            xhat[bad] = 0.
+            
+            outs = self.nms(xhat)
             
             predictions = []
             for coordinates, labels, scores_abs, scores_rel in outs:
@@ -168,7 +143,10 @@ class CellDetectorWithClassifier(nn.Module):
             outputs.append(predictions)
 
         if self.return_belive_maps:
-            outputs.append(xhat)
+            if self.training:
+                outputs.append(xhat)
+            else:
+                outputs.append((xhat, clf_scores))
         
         if len(outputs) == 1:
             outputs = outputs[0]

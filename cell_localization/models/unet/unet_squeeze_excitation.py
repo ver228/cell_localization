@@ -11,6 +11,8 @@ from .unet_base import UpSimple, DownSimple, unet_constructor
 import torch
 from torch import nn
 
+__all__ = ['unet_squeeze_excitation']
+
 class ChannelSELayer(nn.Module):
     """
     based on https://github.com/ai-med/squeeze_and_excitation/blob/master/squeeze_and_excitation/squeeze_and_excitation.py

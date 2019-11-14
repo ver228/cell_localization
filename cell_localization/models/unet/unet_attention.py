@@ -14,6 +14,7 @@ from torch import nn
 import torch.nn.functional as F
 import math
 
+__all__ = ['unet_attention']
 
 class AttentionBlock(nn.Module):
     #base on https://github.com/LeeJunHyun/Image_Segmentation/blob/master/network.py ...
