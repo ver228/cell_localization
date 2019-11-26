@@ -5,8 +5,6 @@ Created on Mon Mar 18 14:27:27 2019
 
 @author: avelinojaver
 """
-#import multiprocessing as mp
-#mp.set_start_method('spawn', force=True)
 
 import math
 import tables
@@ -20,18 +18,16 @@ from torch.utils.data import Dataset
 
 from .transforms import ( RandomCropWithSeeds, AffineTransform, RemovePadding, RandomVerticalFlip, 
 RandomHorizontalFlip, NormalizeIntensity, RandomIntensityOffset, RandomIntensityExpansion, 
-FixDTypes, ToTensor, Compose )
+FixDTypes, ToTensor, Compose, OutContours2Segmask )
                
 def collate_simple(batch):
     return tuple(map(list, zip(*batch)))
 
-
 #%%
-class CoordFlow(Dataset):
+class FlowCellSegmentation(Dataset):
     def __init__(self, 
                  data_src,
                  folds2include = None,
-                 
                  num_folds = 5,
                  
                  samples_per_epoch = 2000,
@@ -92,6 +88,7 @@ class CoordFlow(Dataset):
                 NormalizeIntensity(scale_int, norm_mean, norm_sd),
                 RandomIntensityOffset(int_aug_offset),
                 RandomIntensityExpansion(int_aug_expansion),
+                OutContours2Segmask(),
                 FixDTypes()
                 #I cannot really pass the ToTensor to the dataloader since it crashes when the batchsize is large (>256)
                 ]
@@ -99,13 +96,13 @@ class CoordFlow(Dataset):
         
         transforms_full = [
                 NormalizeIntensity(scale_int),
+                OutContours2Segmask(),
                 FixDTypes(),
                 ToTensor()
                 ]
         self.transforms_full = Compose(transforms_full)
-        
-        
         self.hard_neg_data = None
+        
         
         if self.data_src.is_dir():
             assert self.folds2include is None
@@ -150,7 +147,7 @@ class CoordFlow(Dataset):
             images = fid.get_node('/images')
              
             centroids = self._read_coords(fid, _node = '/localizations')
-            
+            contours = self._read_contours(fid, _node = '/contours')
             
             type_ids = np.unique(centroids['type_id'])
             
@@ -158,6 +155,7 @@ class CoordFlow(Dataset):
             
             keys = centroids['file_id']
             centroids_by_file =  {key: centroids[keys == key] for key in np.unique(keys)}
+            
             for file_id, dat in centroids_by_file.items():
                 if not _is_valid_fold(file_id):
                     continue
@@ -168,8 +166,9 @@ class CoordFlow(Dataset):
                 if np.all([x <= self.max_input_size for x in img.shape[:-1]]):
                 
                     for tid in np.unique(dat['type_id']):
-                        data[tid][file_id] = [(img, dat)]
+                        data[tid][file_id] = [(img, dat, contours[file_id])]
                 else:
+                    
                     #divide files if they are too large...
                     inds = []
                     for ss in img.shape[:-1]:
@@ -197,8 +196,6 @@ class CoordFlow(Dataset):
                     
         return data
                 
-            
-    
     def load_data_from_dir(self, root_dir, padded_roi_size, is_preloaded = True):
         data = {} 
         fnames = [x for x in root_dir.rglob('*.hdf5') if not x.name.startswith('.')]
@@ -206,6 +203,7 @@ class CoordFlow(Dataset):
         header = 'Preloading Data' if is_preloaded else 'Reading Data'
         for ifname, fname in enumerate(tqdm.tqdm(fnames, header)):
             with tables.File(str(fname), 'r') as fid:
+                
                 img = fid.get_node('/img')
                 img_shape = img.shape[:2]
                 
@@ -217,15 +215,15 @@ class CoordFlow(Dataset):
                 if not '/coords' in fid:
                     continue
                 
-                rec = self._read_coords(fid)
-                
+                coords = self._read_coords(fid)
+                contours = self._read_contours(fid)
                 
                 if is_preloaded:
-                    x2add = (img[:], rec)
+                    x2add = (img[:], coords, contours)
                 else:
                     x2add = fname
             
-            type_ids = set(np.unique(rec['type_id']).tolist())
+            type_ids = set(np.unique(coords['type_id']).tolist())
             
             
             k = fname.parent.name
@@ -250,6 +248,30 @@ class CoordFlow(Dataset):
             rec = rec[valid]
         return rec
 
+    def _read_contours(self, fid, _node = '/contours'):
+        
+        
+        if not _node in fid:
+            return None
+        
+        def _rec2array(cnt):
+            return np.stack((cnt['x'], cnt['y'])).T
+        
+        def _groupbynuclei(dat):
+            nuclei_ids = dat['nuclei_id']
+            return {key: _rec2array(dat[nuclei_ids == key]) for key in np.unique(nuclei_ids)}
+        
+        contours = fid.get_node(_node)[:]
+        if 'file_id' in contours.dtype.names:
+            file_ids = contours['file_id']
+            return {key: _groupbynuclei(contours[file_ids == key]) for key in np.unique(file_ids)}
+            
+        else:
+            return _groupbynuclei(contours)
+        
+        
+        
+        
 
     def __len__(self):
         return self.samples_per_epoch
@@ -272,12 +294,14 @@ class CoordFlow(Dataset):
         input_ = self.data[_type][_group][_img_id]
         
         if self.is_preloaded:
-           img, coords_rec = input_
+           img, coords_rec, contours_dict = input_
         else:
             fname = input_
             with tables.File(str(fname), 'r') as fid:
                 coords_rec = self._read_coords(fid)
+                contours_dict = self._read_contours(fid)
                 img = fid.get_node('/img')[:]
+                
         
         
         labels = np.array([self.types2label[x] for x in coords_rec['type_id']])
@@ -285,6 +309,10 @@ class CoordFlow(Dataset):
                 labels = labels,
                 coordinates = np.array((coords_rec['cx'], coords_rec['cy'])).T
                 )
+        
+        if contours_dict is not None:
+            target['contours'] = [contours_dict[x] for x in coords_rec['nuclei_id']]
+            
         
         return img, target
         
@@ -304,7 +332,9 @@ class CoordFlow(Dataset):
             
             target['coordinates'] = np.concatenate((target['coordinates'], hard_neg['coordinates']))
             target['labels'] = np.concatenate((target['labels'], hard_neg['labels']))
-        
+            
+            
+            
         img, target = self.transforms_random(img, target)
         #assert img.shape[-2:] == (self.roi_size, self.roi_size)
         
@@ -321,7 +351,7 @@ if __name__ == '__main__':
     #root_dir = Path.home() / 'workspace/localization/data/histology_bladder/bladder_cancer_tils/all_lymphocytes/20x/validation/'
     #root_dir = Path.home() / 'workspace/localization/data/woundhealing/annotated/splitted/F0.5x/'
     #root_dir = '/Users/avelinojaver/Desktop/nuclei_datasets/reformated/40x_MoNuSeg_training.hdf5'
-    #root_dir = '/Users/avelinojaver/Desktop/nuclei_datasets/reformated/40x_MoNuSeg_training.hdf5'
+    root_dir = '/Users/avelinojaver/Desktop/nuclei_datasets/reformated/40x_MoNuSeg_training.hdf5'
     
     #root_dir = '/Users/avelinojaver/Desktop/nuclei_datasets/reformated/40x_TMA_lymphocytes_2Bfirst104868.hdf5'
     #root_dir = '/Users/avelinojaver/Desktop/nuclei_datasets/reformated/20x-resized_TMA_lymphocytes_2Bfirst104868.hdf5'
@@ -329,10 +359,10 @@ if __name__ == '__main__':
     #root_dir = Path.home() / 'workspace/localization/data/histology_data/40x_andrewjanowczyk_lymphocytes.hdf5'
     
     #root_dir =  '/Users/avelinojaver/Desktop/nuclei_datasets/separated_files/BBBC038_Kaggle_2018_Data_Science_Bowl/fluorescence/train/'
-    root_dir =  '/Users/avelinojaver/Desktop/nuclei_datasets/separated_files/BBBC038_Kaggle_2018_Data_Science_Bowl/fluorescence/validation/'
+    #root_dir =  '/Users/avelinojaver/Desktop/nuclei_datasets/separated_files/BBBC038_Kaggle_2018_Data_Science_Bowl/fluorescence/validation/'
     
     flow_args = dict(
-                roi_size = 64,
+                roi_size = 96,
                 #scale_int = (0, 4095),
                 scale_int = (0, 255.),
                 #scale_int = (0, 1.),
@@ -349,7 +379,7 @@ if __name__ == '__main__':
                 )
 
 
-    gen = CoordFlow(root_dir, **flow_args)
+    gen = FlowCellSegmentation(root_dir, **flow_args)
     
 #%%
     col_dict = {1 : 'r', 2 : 'g'}
@@ -364,13 +394,25 @@ if __name__ == '__main__':
         else:
             x = X[0]
         
-        coords = target['coordinates']
-        labels = target['labels']
-        assert (labels > 0).all()
-        #%%
-        plt.figure()
-        plt.imshow(x,  cmap='gray', vmin = 0.0, vmax = 1.0)
-        for lab in np.unique(labels):
-            good = labels == lab
-            plt.plot(coords[good, 0], coords[good, 1], 'o', color = col_dict[lab])
+        fig, axs = plt.subplots(1, 2, sharex = True, sharey = True)
+        axs[0].imshow(x,  cmap='gray', vmin = 0.0, vmax = 1.0)
+        
+        if 'segmentation_mask' in target:
+            seg = target['segmentation_mask']
+            axs[1].imshow(seg)
+        else:
+            axs[1].imshow(x,  cmap='gray', vmin = 0.0, vmax = 1.0)
+            if 'coordinates' in target:
+                coords = target['coordinates']
+                labels = target['labels']
+                assert (labels > 0).all()
+                #%%
+                
+                for lab in np.unique(labels):
+                    good = labels == lab
+                    axs[1].plot(coords[good, 0], coords[good, 1], 'o', color = col_dict[lab])
+                
+            if 'contours' in target:
+                for cnt in target['contours']:
+                     axs[1].plot(cnt[:, 0], cnt[:, 1], 'r')
         

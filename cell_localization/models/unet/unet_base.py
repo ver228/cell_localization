@@ -133,7 +133,8 @@ class UNetBase(nn.Module):
                  output_block,
                  pad_mode = 'constant',
                  return_feat_maps = False,
-                 output_activation = None
+                 output_activation = None,
+                 init_type = None
                  ):
         super().__init__()
         
@@ -149,6 +150,12 @@ class UNetBase(nn.Module):
         self.output_activation = output_activation
         
         self.n_levels = len(down_blocks)
+        
+        
+        if init_type is not None:
+            print(f'Initialize network with {init_type}')
+            for m in self.modules():
+                init_weights(m, init_type = init_type)
     
     def _unet(self, x_input):    
         x = self.initial_block(x_input)
@@ -266,18 +273,12 @@ def unet_constructor(n_inputs,
                      output_block, 
                      pad_mode = pad_mode, 
                      return_feat_maps = return_feat_maps, 
-                     output_activation = output_activation
+                     output_activation = output_activation,
+                     init_type = init_type
                      )
     model.n_inputs = n_inputs
     model.n_outputs = n_outputs
     
-    #initialize model
-
-    if init_type is not None:
-        print(f'Initialize network with {init_type}')
-        for m in model.modules():
-            init_weights(m, init_type = init_type)
-
     return model
 
 

@@ -7,6 +7,7 @@ Created on Sun Aug 19 10:27:31 2018
 """
 from .cell_detector_with_clf import CellDetectorWithClassifier
 from .cell_detector_with_clf_v2 import CellDetectorWithClassifierInd
+from .cell_segmentator import CellSegmentator
 from .cell_detector import CellDetector
 from .detector_fasterrcnn import FasterRCNNFixedSize
 from .unet import get_mapping_network
@@ -29,6 +30,7 @@ def get_model(model_name,
         model = FasterRCNNFixedSize(n_classes = n_ch_out, backbone_name = backbone_name)
     
     else:
+        
         if ((nms_threshold_abs is None) and (nms_threshold_rel is None)):
             if 'reg' in loss_type:
                 nms_threshold_abs = 0.4
@@ -37,13 +39,23 @@ def get_model(model_name,
                 nms_threshold_abs = 0.0 
                 nms_threshold_rel = 0.2
         
+        detector_args = dict(
+                nms_threshold_abs = nms_threshold_abs,
+                nms_threshold_rel = nms_threshold_rel,
+                nms_min_distance = nms_min_distance
+                )
         
-        
-        if model_name.startswith('clf+'):
+        if model_name.startswith('seg+'):
+            model_obj = CellSegmentator 
+            model_name = model_name[4:]
+            return_feat_maps = False
+            detector_args = {}
+            
+        elif model_name.startswith('clf+'):
             model_obj = CellDetectorWithClassifier 
             model_name = model_name[4:]
             return_feat_maps = True
-            
+        
         elif model_name.startswith('ind+clf+'):
             model_obj = partial(CellDetectorWithClassifierInd, n_classes = n_ch_out)
             n_ch_out = 1
@@ -58,6 +70,8 @@ def get_model(model_name,
             model_obj = CellDetector
             return_feat_maps = False
         
+        
+        
         model_args = model_types[model_name].copy()
         model_args.update(argkws)
         model_args['return_feat_maps'] = return_feat_maps
@@ -65,9 +79,7 @@ def get_model(model_name,
         model = model_obj(mapping_network, 
                              loss_type = loss_type,
                              return_belive_maps = return_belive_maps,
-                             nms_threshold_abs = nms_threshold_abs,
-                             nms_threshold_rel = nms_threshold_rel,
-                             nms_min_distance = nms_min_distance
+                             **detector_args
                              )
     
     return model
@@ -209,5 +221,7 @@ model_types = {
         
         'unet-n2n' : {
              'model_type' : 'unet-n2n'
+             #'init_type' : 'xavier',
+             #'pad_mode' : 'reflect'
              },
         }

@@ -30,11 +30,23 @@ class UnetResnet(UNetBase):
                  init_type = 'xavier',
                  pad_mode = 'constant', 
                  return_feat_maps = False,
-                 is_imagenet_normalized = True
+                 is_imagenet_normalized = True,
+                 load_pretrained = True
                  ):
+        
+        self.n_inputs = n_inputs
+        self.n_outputs = n_outputs
+        
         self.is_imagenet_normalized = is_imagenet_normalized
+        
+        
         self.image_mean = [0.485, 0.456, 0.406]
         self.image_std = [0.229, 0.224, 0.225]
+        
+        if n_inputs != 3:
+            self.image_mean = sum(self.image_mean)/3
+            self.image_std = sum(self.image_std)/3
+        
         
         
         if backbone_name == 'resnet34' or backbone_name == 'resnet18':
@@ -90,7 +102,7 @@ class UnetResnet(UNetBase):
         self.n_levels = len(self.down_blocks)
         
         #real downstream
-        backbone = resnet.__dict__[backbone_name](pretrained = True, norm_layer = FrozenBatchNorm2d)
+        backbone = resnet.__dict__[backbone_name](pretrained = load_pretrained, norm_layer = FrozenBatchNorm2d)
         self.backbone = IntermediateLayerGetter(backbone, return_layers)
         for name, parameter in backbone.named_parameters():
             if 'layer2' not in name and 'layer3' not in name and 'layer4' not in name:
@@ -111,12 +123,16 @@ class UnetResnet(UNetBase):
     
     def normalize(self, image):
         #taken from https://github.com/pytorch/vision/blob/master/torchvision/models/detection/transform.py
-        dtype, device = image.dtype, image.device
-        mean = torch.as_tensor(self.image_mean, dtype=dtype, device=device)
-        std = torch.as_tensor(self.image_std, dtype=dtype, device=device)
-        return (image - mean[:, None, None]) / std[:, None, None]
+        if self.n_inputs == 3:
+            dtype, device = image.dtype, image.device
+            mean = torch.as_tensor(self.image_mean, dtype=dtype, device=device)
+            std = torch.as_tensor(self.image_std, dtype=dtype, device=device)
+            return (image - mean[:, None, None]) / std[:, None, None]
+        else:
+            return (image - self.image_mean) / self.image_std
     
     def _unet(self, x_input):
+        
         if self.is_imagenet_normalized:
             x_input = self.normalize(x_input)
         
@@ -147,10 +163,10 @@ if __name__ == '__main__':
     
     
     
-    X = torch.rand((1, 3, 100, 100))
+    X = torch.rand((1, 1, 100, 100))
     #feats = backbone(X)
     
-    model = UnetResnet(3, 1, return_feat_maps = True, backbone_name = 'resnet50')
+    model = UnetResnet(1, 1, return_feat_maps = True, backbone_name = 'resnet50')
     xout, feats = model(X)
     
     assert xout.shape[2:] == X.shape[2:]

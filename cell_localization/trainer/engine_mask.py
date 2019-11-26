@@ -7,8 +7,13 @@ Created on Thu Oct 10 17:51:05 2019
 """
 from ..utils import save_checkpoint
 
+import warnings
+with warnings.catch_warnings():
+    warnings.simplefilter("ignore")
+    from torch.utils.tensorboard import SummaryWriter
+
 from torch.utils.data import DataLoader
-from tensorboardX import SummaryWriter
+    
 import tqdm
 import time
 import torch

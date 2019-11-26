@@ -20,6 +20,8 @@ class UNetN2N(UNetBase):
     def __init__(self, 
                  n_inputs,
                  n_outputs,
+                 init_type = None,
+                 pad_mode = 'constant',
                  **argkws):
         
         initial_block = nn.Sequential(*_conv3x3(n_inputs, 48))
@@ -41,6 +43,8 @@ class UNetN2N(UNetBase):
                  down_blocks,
                  up_blocks,
                  output_block,
+                 init_type = init_type,
+                 pad_mode = pad_mode,
                  **argkws)
         
         self.conv6 = nn.Sequential(*_conv3x3(48, 48)) #there is an extra convolution here in the original implementation
@@ -53,10 +57,11 @@ class UNetN2N(UNetBase):
             if ii != 0:
                 x_downs.append(x)
             x = down(x)
-            
         
         x = self.conv6(x)
         feats = [x]
+        
+        assert len(x_downs) == len(self.up_blocks)
         for x_down, up in zip(x_downs[::-1], self.up_blocks):
             x = up(x, x_down)
             feats.append(x)
