@@ -97,5 +97,33 @@ def get_IoU_best_match(IoU, match_threshold = 0.1):
     
     return TP, FP, FN, pred_ind, true_ind
 
+def segmentation2contours(seg_mask, kernel_size = 5, chain_approx = False):
+    chain_approx = cv2.CHAIN_APPROX_SIMPLE  if chain_approx else cv2.CHAIN_APPROX_NONE
+    
+    n_labs, seg_mask, stats, centroids = cv2.connectedComponentsWithStats(seg_mask.astype(np.uint8), 4)
+        
+    kernel = cv2.getStructuringElement( cv2.MORPH_ELLIPSE, (kernel_size, kernel_size))
+    
+    mm = kernel_size // 2 #offset
+    
+    cell_contours = []
+    for ii, (top, left, height, width, _) in enumerate(stats):
+        if ii == 0:
+            continue
+        
+        yl, yr = max(0, left - mm), min(seg_mask.shape[0], left + width + mm) 
+        xl, xr = max(0, top - mm), min(seg_mask.shape[1], top + height + mm) 
+        
+        crop = cv2.compare(seg_mask[yl:yr, xl:xr], ii, cv2.CMP_EQ)
+        crop = cv2.dilate(crop, kernel)
+        cnt = cv2.findContours(crop, cv2.RETR_EXTERNAL, chain_approx)[-2]
+        assert len(cnt) == 1
+        
+        cnt = cnt[0].squeeze(1) + np.array((xl, yl))[None]
+        
+        cell_contours.append(cnt)
+    
+    return cell_contours
+
 if __name__ == '__main__':
     pass
