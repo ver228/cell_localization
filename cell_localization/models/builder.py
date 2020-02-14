@@ -218,7 +218,28 @@ model_types = {
              'model_type' : 'resnet',
              'backbone_name' : 'resnet101'
              },
-        
+        'unet-resnet152' : {
+             'model_type' : 'resnet',
+             'backbone_name' : 'resnet152'
+             },
+        'unet-resnext101' : {
+             'model_type' : 'resnet',
+             'backbone_name' : 'resnext101_32x8d'
+             }, 
+                
+        'unet-densenet121' : { 
+                'model_type' : 'densenet',
+                'backbone_name' : 'densenet121',
+                    },
+        'unet-densenet201' : { 
+                'model_type' : 'densenet',
+                'backbone_name' : 'densenet201',
+                    },
+                
+        'dense-unet' : { 
+                'model_type' : 'dense-unet',
+                'backbone_name' : 'densenet121',
+                    },
         'unet-n2n' : {
              'model_type' : 'unet-n2n'
              #'init_type' : 'xavier',

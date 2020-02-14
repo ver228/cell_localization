@@ -6,7 +6,7 @@ Created on Tue Aug 13 13:44:12 2019
 @author: avelinojaver
 """
 
-from unet_base import UNetBase, ConvBlock, UpSimple, init_weights
+from .unet_base import UNetBase, ConvBlock, init_weights
 
 
 import torch
@@ -16,7 +16,6 @@ import collections
 from torch import nn
 from torchvision.models._utils import IntermediateLayerGetter
 from torchvision.models import densenet
-from torchvision.models.densenet import _DenseBlock
 import torch.nn.functional as F
 
 #dummy variable used for compatibility with the unetbase
@@ -24,50 +23,36 @@ NF = collections.namedtuple('NF', 'n_filters')
 #%%
 
 
-class UpDenseBlock(nn.Module):
+class UpTransition(nn.Module):
     def __init__(self, 
                     num_inputs,
-                    dense_num_layers,
-                    dense_num_input,
-                    dense_growth_rate,
-                    scale_factor = 2,
-                    interp_mode = 'nearest'
+                    num_outputs,
+                    block = None
                 ):
         super().__init__()
         
-        self.denseblock = _DenseBlock(
-                            num_layers=dense_num_layers,
-                            num_input_features=dense_num_input,
-                            growth_rate = dense_growth_rate,
-                            bn_size=4,
-                            drop_rate=0)
-        self.conv1 = nn.Conv2d(num_inputs, dense_num_input, 1)
+        self.conv = nn.Sequential(
+                ConvBlock(num_inputs, num_inputs, 3, batchnorm = True),
+                ConvBlock(num_inputs, num_outputs, 3, batchnorm = True)
+                )
         
-        self.scale_factor = scale_factor
+        self.block = None
         
-        self.interp_mode = interp_mode
         
-    @staticmethod
-    def crop_to_match(x, x_to_crop):
-        c = (x_to_crop.size()[2] - x.size()[2])/2
-        c1, c2 =  math.ceil(c), math.floor(c)
         
-        c = (x_to_crop.size()[3] - x.size()[3])/2
-        c3, c4 =  math.ceil(c), math.floor(c)
-        
-        cropped = F.pad(x_to_crop, (-c3, -c4, -c1, -c2)) #negative padding is the same as cropping
-        
-        return cropped
-
     def forward(self, x1, x2):
+        if self.block is not None:
+            x1  = self.block(x1)
+        
         x1 = F.interpolate(x1, 
-                           scale_factor = self.scale_factor,
-                           mode = self.interp_mode
+                           x2.shape[-2:],
+                           mode = 'bilinear',
+                           align_corners=False
                            )
-        x2 = self.crop_to_match(x1, x2)
+        
+        
         x = torch.cat([x2, x1], dim=1)
-        x = self.conv1(x)
-        x = self.denseblock(x)
+        x = self.conv(x)
         return x
     
 #%%
@@ -92,15 +77,19 @@ class UnetDensenet(UNetBase):
                  return_feat_maps = False,
                  is_imagenet_normalized = True
                  ):
+        
         self.is_imagenet_normalized = is_imagenet_normalized
         self.image_mean = [0.485, 0.456, 0.406]
         self.image_std = [0.229, 0.224, 0.225]
-        
+        if n_inputs != 3:
+            self.image_mean = sum(self.image_mean)/3
+            self.image_std = sum(self.image_std)/3
+            
         self.backbone_name = backbone_name
         self.n_inputs = n_inputs
         self.n_outputs = n_outputs
         
-        super().__init__([], [], [], [], return_feat_maps = return_feat_maps)
+        super().__init__([], [], [], [], return_feat_maps = return_feat_maps) #dummy initizializaton...
         
         ## initial
         self.adaptor = nn.Sequential(
@@ -117,36 +106,32 @@ class UnetDensenet(UNetBase):
             if 'denseblock2' not in name and 'denseblock3' not in name and 'denseblock4' not in name:
                 parameter.requires_grad_(False)
         
-        #UPSTREAM
-        growth_rate, block_config, num_init_features = self.densenet_params[backbone_name]
-        num_features = num_init_features
         
-        up_blocks = []
         
-        model.blocks_num_filters[::-1]
-        for i, num_layers in enumerate(block_config[-2::-1]):
-            num_inputs = model.blocks_num_filters[-(i + 1)] + model.blocks_num_filters[-(i + 2)]
-            dense_num_input = model.blocks_num_filters[-(i + 2)]//2
-            up_block = UpDenseBlock(
-                num_inputs,
-                dense_num_layers = num_layers,
-                dense_num_input = dense_num_input,
-                dense_growth_rate = growth_rate
-            )
-            up_blocks.append(up_block)
+        base_model = densenet.__dict__[backbone_name]()
+        self._up = []
+        
+        filters_ = self.blocks_num_filters
+        for i in [4, 3, 2, 1]:
+            dense_block = getattr(base_model.features, f'denseblock{i}')
+           
+            if i == 4:
+                transition_block = ConvBlock(filters_[4], 
+                                               filters_[3]//2, 
+                                               kernel_size = 1, 
+                                               batchnorm = True
+                                               )
+                up_block = nn.Sequential(transition_block, dense_block)
+            else:
+                up_block = UpTransition(filters_[i] + filters_[i + 1], 
+                                               filters_[i],
+                                               block = dense_block
+                                               )
             
-            num_features = num_features + num_layers * growth_rate
-            if i != len(block_config) - 1:
-                num_features = num_features // 2
-        #up_blocks = up_blocks[::-1]
-        self.up_blocks = nn.ModuleList(up_blocks)
+            
+            self.up_blocks.append(up_block)
         
-        
-        #FINAL BLOCK
-        self.loc_head = nn.Conv2d(64, n_outputs, kernel_size = 3, padding = 1)
-        
-        
-        output_block_size = 128
+        output_block_size = self.blocks_num_filters[1]
         #OUTPUT
         self.output_block = nn.Sequential(
                 nn.Upsample(scale_factor = 4, mode = 'bilinear', align_corners = False),
@@ -155,6 +140,8 @@ class UnetDensenet(UNetBase):
             )
         
         
+        #CLASSIFICATION
+        self.loc_head = nn.Conv2d(64, n_outputs, kernel_size = 3, padding = 1)
         
         
         #dummy variable used for compatibility with the UNetBase
@@ -182,53 +169,54 @@ class UnetDensenet(UNetBase):
             for i, num_layers in enumerate(block_config):
                 num_features = num_features + num_layers * growth_rate
                 n_filters.append(num_features)
-                if i != len(block_config) - 1:
-                    num_features = num_features // 2
-                    
+                num_features = num_features // 2
+                
             self._blocks_num_filters = n_filters
             return self._blocks_num_filters
     
     def normalize(self, image):
         #taken from https://github.com/pytorch/vision/blob/master/torchvision/models/detection/transform.py
-        dtype, device = image.dtype, image.device
-        mean = torch.as_tensor(self.image_mean, dtype=dtype, device=device)
-        std = torch.as_tensor(self.image_std, dtype=dtype, device=device)
-        return (image - mean[:, None, None]) / std[:, None, None]
+        if self.n_inputs == 3:
+            dtype, device = image.dtype, image.device
+            mean = torch.as_tensor(self.image_mean, dtype=dtype, device=device)
+            std = torch.as_tensor(self.image_std, dtype=dtype, device=device)
+            return (image - mean[:, None, None]) / std[:, None, None]
+        else:
+            return (image - self.image_mean) / self.image_std
     
     def _unet(self, x_input):
         if self.is_imagenet_normalized:
             x_input = self.normalize(x_input)
         
+        
         x = self.adaptor(x_input)
         
-        feats = self.backbone(x)
         
-        x_downs = [x for x in feats.values()]
-        x_downs = x_downs[::-1]
-        x, x_downs = x_downs[0], x_downs[1:]
+        down_feats = [x for x in self.backbone(x).values()][::-1]
         
-        feats = [x]
-        for x_down, up in zip(x_downs, self.up_blocks):
-            x = up(x, x_down)
-            feats.append(x)
+        
+        x = self.up_blocks[0](down_feats[0])
+        
+        up_feats = [x]
+        for x_down, up_block in zip(down_feats[1:], self.up_blocks[1:]):
+            x = up_block(x, x_down)
+            up_feats.append(x)
         
         x = self.output_block(x)
-        feats.append(x)
+        up_feats.append(x)
         
         xout = self.loc_head(x)
         
-        return xout, feats
+        return xout, up_feats
 
 if __name__ == '__main__':
     
     
     
-    X = torch.rand((1, 3, 100, 100))
+    X = torch.rand((4, 1, 100, 100))
     #feats = backbone(X)
     
-    model = UnetDensenet(3, 1, return_feat_maps = True, backbone_name = 'densenet121')
-    feats = model.backbone(X)
-    assert all([x.shape[1] == m.n_filters for x, m in zip(feats.values(), model.down_blocks)])
+    model = UnetDensenet(1, 1, return_feat_maps = True, backbone_name = 'densenet121')
     
     xout, feats = model(X)
     
@@ -237,22 +225,4 @@ if __name__ == '__main__':
     loss = ((xout - X)**2).mean()
     loss.backward()
     #%%
-    backbone_name = 'densenet121'
-    growth_rate, block_config, num_init_features = model.densenet_params[backbone_name]
-    num_features = num_init_features
     
-    blocks = []
-    for i, num_layers in enumerate(block_config):
-        block = UpDenseBlock(
-            num_layers=num_layers,
-            num_input_features=num_features,
-            growth_rate = growth_rate,
-            bn_size=4,
-            drop_rate=0
-        )
-        blocks.append(block)
-        
-        num_features = num_features + num_layers * growth_rate
-        if i != len(block_config) - 1:
-            num_features = num_features // 2
-    #up_blocks = up_blocks[::-1]

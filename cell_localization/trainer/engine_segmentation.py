@@ -102,6 +102,7 @@ def evaluate_one_epoch(basename, model, data_loader, device, epoch, logger, eval
     N = len(data_loader.data_indexes)
     for ind in tqdm.trange(N, desc = header):
         image, target = data_loader.read_full(ind) #I am evaluating one image at the time because some images can have seperated size
+        
         image = image.to(device)
         target = {k: v.to(device) for k, v in target.items()}
         

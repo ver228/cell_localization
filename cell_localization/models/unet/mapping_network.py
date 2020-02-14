@@ -3,7 +3,9 @@ from .unet_attention import unet_attention
 from .unet_squeeze_excitation import unet_squeeze_excitation
 from .EDSR import EDSRBody
 from .unet_resnet import UnetResnet
+from .unet_densenet import UnetDensenet
 from .unet_n2n import UNetN2N
+from .dense_unet import DenseUNet
 
 def get_mapping_network(n_inputs, n_ouputs, model_type = 'unet-simple',  **argkws):
     
@@ -19,6 +21,10 @@ def get_mapping_network(n_inputs, n_ouputs, model_type = 'unet-simple',  **argkw
         constructor = UNetN2N
     elif model_type == 'resnet':
         constructor = UnetResnet
+    elif model_type == 'densenet':
+        constructor = UnetDensenet
+    elif model_type == 'dense-unet':
+        constructor = DenseUNet
     elif model_type == 'EDSR':
         constructor = EDSRBody
     else:

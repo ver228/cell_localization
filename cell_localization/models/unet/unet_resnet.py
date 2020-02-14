@@ -21,6 +21,13 @@ from torchvision.ops.misc import FrozenBatchNorm2d
 #dummy variable used for compatibility with the unetbase
 NF = collections.namedtuple('NF', 'n_filters')
 
+class FrozenBatchNorm2dv2(FrozenBatchNorm2d):
+    def __init__(self, *args, **argkws):
+        super().__init__( *args, **argkws)
+        #the batchnorm in resnext is missing a variable in the presaved values, but the pytorch does not have it FrozenBatchNorm2d
+        #so I am adding it
+        self.register_buffer('num_batches_tracked', torch.tensor(0, dtype=torch.long))
+
 class UnetResnet(UNetBase):
     def __init__(self, 
                  n_inputs,
@@ -81,8 +88,6 @@ class UnetResnet(UNetBase):
             )
         
         
-        
-        
         super().__init__([],
                  [],
                  up_blocks,
@@ -102,7 +107,8 @@ class UnetResnet(UNetBase):
         self.n_levels = len(self.down_blocks)
         
         #real downstream
-        backbone = resnet.__dict__[backbone_name](pretrained = load_pretrained, norm_layer = FrozenBatchNorm2d)
+        norm_layer = FrozenBatchNorm2dv2 if 'resnext' in backbone_name else FrozenBatchNorm2d
+        backbone = resnet.__dict__[backbone_name](pretrained = load_pretrained, norm_layer = norm_layer)
         self.backbone = IntermediateLayerGetter(backbone, return_layers)
         for name, parameter in backbone.named_parameters():
             if 'layer2' not in name and 'layer3' not in name and 'layer4' not in name:
@@ -157,16 +163,11 @@ class UnetResnet(UNetBase):
         return xout, feats
 
 
-
-
 if __name__ == '__main__':
-    
-    
-    
     X = torch.rand((1, 1, 100, 100))
     #feats = backbone(X)
     
-    model = UnetResnet(1, 1, return_feat_maps = True, backbone_name = 'resnet50')
+    model = UnetResnet(1, 1, return_feat_maps = True, backbone_name = 'resnext101_32x8d')
     xout, feats = model(X)
     
     assert xout.shape[2:] == X.shape[2:]

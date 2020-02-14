@@ -9,40 +9,45 @@ import numpy as np
 import random
 import torch
 import cv2
-
-def _clip_to_crop(p1, p2, bad, val):
-    p1[bad] = val
-    vv = p2[~bad]
-    if not vv.size:
-        return np.zeros((0, 2))
-    
-    p2[bad] = np.clip(p2[bad], vv.min(), vv.max())
-    return p1, p2
+from clip_contours import c_crop_contour
+#def _clip_to_crop(p1, p2, bad, val):
+#    p1[bad] = val
+#    vv = p2[~bad]
+#    if not vv.size:
+#        return np.zeros((0, 2))
+#    
+#    p2[bad] = np.clip(p2[bad], vv.min(), vv.max())
+#    return p1, p2
+#
+#def crop_contour(coords, xl, xr, yl, yr):
+#    xx, yy = coords.T
+#    
+#    xx = coords[:, 0] - xl
+#    yy = coords[:, 1] - yl
+#    
+#    xlim = xr - xl - 1
+#    ylim = yr - yl - 1
+#    
+#    is_xmin = xx < 0
+#    is_xmax = xx >= xlim
+#    is_ymin = yy < 0
+#    is_ymax = yy >= ylim
+#    
+#    
+#    if np.all(is_xmin | is_xmax | is_ymin | is_ymax):
+#        return np.zeros((0, 2))
+#    else:
+#        _clip_to_crop(xx, yy, is_xmin, 0)
+#        _clip_to_crop(xx, yy, is_xmax, xlim)
+#        _clip_to_crop(yy, xx, is_ymin, 0)
+#        _clip_to_crop(yy, xx, is_ymax, ylim)
+#        
+#        return np.stack((xx, yy)).T
 
 def crop_contour(coords, xl, xr, yl, yr):
-    xx, yy = coords.T
+    return c_crop_contour(coords, xl, xr, yl, yr)
     
-    xx = coords[:, 0] - xl
-    yy = coords[:, 1] - yl
-    
-    xlim = xr - xl - 1
-    ylim = yr - yl - 1
-    
-    is_xmin = xx < 0
-    is_xmax = xx >= xlim
-    is_ymin = yy < 0
-    is_ymax = yy >= ylim
-    
-    
-    if np.all(is_xmin | is_xmax | is_ymin | is_ymax):
-        return np.zeros((0, 2))
-    else:
-        _clip_to_crop(xx, yy, is_xmin, 0)
-        _clip_to_crop(xx, yy, is_xmax, xlim)
-        _clip_to_crop(yy, xx, is_ymin, 0)
-        _clip_to_crop(yy, xx, is_ymax, ylim)
-        
-        return np.stack((xx, yy)).T
+
 
 class Compose(object):
     def __init__(self, transforms):
@@ -119,6 +124,7 @@ class RandomCrop(TransformBase):
             return coord_out, labels[valid].copy()
     
     def _from_contours(self, coords, xl, xr, yl, yr):
+        
         return crop_contour(coords, xl, xr, yl, yr)
     
     def _from_image(self, image, xl, xr, yl, yr):
@@ -225,7 +231,7 @@ class AffineTransform(TransformBase):
     
     def _from_coordinates(self, coords, M, img_shape = None, labels = None):
         coords = np.dot(M[:2, :2], coords.T)  +  M[:, -1][:, None]
-        coords = np.round(coords).T
+        coords = coords.T #np.round(coords).T
         
         if labels is None:
             return coords

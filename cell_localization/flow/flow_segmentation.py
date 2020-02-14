@@ -16,7 +16,7 @@ import tqdm
 
 from torch.utils.data import Dataset 
 
-from .transforms import ( RandomCropWithSeeds, AffineTransform, RemovePadding, RandomVerticalFlip, 
+from transforms import ( RandomCropWithSeeds, AffineTransform, RemovePadding, RandomVerticalFlip, 
 RandomHorizontalFlip, NormalizeIntensity, RandomIntensityOffset, RandomIntensityExpansion, 
 FixDTypes, ToTensor, Compose, OutContours2Segmask )
                
@@ -270,9 +270,6 @@ class FlowCellSegmentation(Dataset):
             return _groupbynuclei(contours)
         
         
-        
-        
-
     def __len__(self):
         return self.samples_per_epoch
             
@@ -350,15 +347,18 @@ if __name__ == '__main__':
     
     #root_dir = Path.home() / 'workspace/localization/data/histology_bladder/bladder_cancer_tils/all_lymphocytes/20x/validation/'
     #root_dir = Path.home() / 'workspace/localization/data/woundhealing/annotated/splitted/F0.5x/'
+    
+    #root_dir = Path.home() / 'workspace/localization/data/histology_data/40x_MoNuSeg_training.hdf5'
+    
     #root_dir = '/Users/avelinojaver/Desktop/nuclei_datasets/reformated/40x_MoNuSeg_training.hdf5'
-    root_dir = '/Users/avelinojaver/Desktop/nuclei_datasets/reformated/40x_MoNuSeg_training.hdf5'
+    #root_dir = '/Users/avelinojaver/Desktop/nuclei_datasets/reformated/40x_MoNuSeg_training.hdf5'
     
     #root_dir = '/Users/avelinojaver/Desktop/nuclei_datasets/reformated/40x_TMA_lymphocytes_2Bfirst104868.hdf5'
     #root_dir = '/Users/avelinojaver/Desktop/nuclei_datasets/reformated/20x-resized_TMA_lymphocytes_2Bfirst104868.hdf5'
     #root_dir = '/Users/avelinojaver/Desktop/nuclei_datasets/reformated/40x_andrewjanowczyk_lymphocytes.hdf5'
     #root_dir = Path.home() / 'workspace/localization/data/histology_data/40x_andrewjanowczyk_lymphocytes.hdf5'
     
-    #root_dir =  '/Users/avelinojaver/Desktop/nuclei_datasets/separated_files/BBBC038_Kaggle_2018_Data_Science_Bowl/fluorescence/train/'
+    root_dir =  '/Users/avelinojaver/Desktop/nuclei_datasets/separated_files/BBBC038_Kaggle_2018_Data_Science_Bowl/fluorescence/train/'
     #root_dir =  '/Users/avelinojaver/Desktop/nuclei_datasets/separated_files/BBBC038_Kaggle_2018_Data_Science_Bowl/fluorescence/validation/'
     
     flow_args = dict(
@@ -380,12 +380,22 @@ if __name__ == '__main__':
 
 
     gen = FlowCellSegmentation(root_dir, **flow_args)
-    
+#    #import pyximport; pyximport.install()
+#    from clip_contours import crop_contour
+#    cnt = gen.data[1][1][0][2][1].astype(np.int)
+#    
+#    xl, xr, yl, yr = 90,  160,  60,  90
+#    
+#    cnt_o = crop_contour(cnt,  xl, xr, yl, yr)
+#    plt.figure()
+#    plt.plot(cnt[:, 0] - xl, cnt[:, 1] - yl)
+#    plt.plot(cnt_o[:, 0], cnt_o[:, 1])
 #%%
     col_dict = {1 : 'r', 2 : 'g'}
     for _ in tqdm.tqdm(range(10)):
         X, target = gen[0]
-        #%%
+    
+        
         #X = X.numpy()
         if X.shape[0] == 3:
             #x = X[::-1]
@@ -406,7 +416,7 @@ if __name__ == '__main__':
                 coords = target['coordinates']
                 labels = target['labels']
                 assert (labels > 0).all()
-                #%%
+                
                 
                 for lab in np.unique(labels):
                     good = labels == lab
@@ -414,5 +424,5 @@ if __name__ == '__main__':
                 
             if 'contours' in target:
                 for cnt in target['contours']:
-                     axs[1].plot(cnt[:, 0], cnt[:, 1], 'r')
+                    axs[1].plot(cnt[:, 0], cnt[:, 1], 'r')
         
